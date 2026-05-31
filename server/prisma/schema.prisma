@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enums are stored as strings in SQLite (Prisma 5+ doesn't support native SQLite enums).
+// TypeScript union types in shared/types.ts carry the type safety at the application layer.
+
+model User {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  username             String   @unique
+  passwordHash         String
+  role                 String   // Role: "boss" | "employee"
+  isCook               Boolean
+  isBarista            Boolean
+  defaultShiftsPerWeek Int
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  availability      Availability[]
+  weeklyShiftCounts WeeklyShiftCount[]
+  assignments       Assignment[]
+}
+
+model Week {
+  id          Int       @id @default(autoincrement())
+  startDate   DateTime  @unique
+  status      String    @default("availability_open") // WeekStatus
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  availability      Availability[]
+  shiftRequirements ShiftRequirement[]
+  weeklyShiftCounts WeeklyShiftCount[]
+  assignments       Assignment[]
+}
+
+model Availability {
+  id        Int     @id @default(autoincrement())
+  weekId    Int
+  userId    Int
+  day       Int     // 0–6, Sunday = 0
+  slot      String  // Slot: "morning" | "mid" | "evening"
+  available Boolean
+
+  week Week @relation(fields: [weekId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([weekId, userId, day, slot])
+}
+
+model ShiftRequirement {
+  id             Int    @id @default(autoincrement())
+  weekId         Int
+  day            Int
+  slot           String // Slot: "morning" | "mid" | "evening"
+  cooksNeeded    Int
+  baristasNeeded Int
+
+  week Week @relation(fields: [weekId], references: [id])
+
+  @@unique([weekId, day, slot])
+}
+
+model WeeklyShiftCount {
+  id             Int @id @default(autoincrement())
+  weekId         Int
+  userId         Int
+  shiftsThisWeek Int
+
+  week Week @relation(fields: [weekId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([weekId, userId])
+}
+
+model Assignment {
+  id          Int      @id @default(autoincrement())
+  weekId      Int
+  userId      Int
+  day         Int
+  slot        String   // Slot: "morning" | "mid" | "evening"
+  roleWorking String   // RoleWorking: "cook" | "barista"
+  createdAt   DateTime @default(now())
+
+  week Week @relation(fields: [weekId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+}

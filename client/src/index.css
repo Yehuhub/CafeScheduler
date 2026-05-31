@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand colour — tune once design is settled */
+  --color-brand: #7c3aed;
+}

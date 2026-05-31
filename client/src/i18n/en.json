@@ -1,0 +1,9 @@
+{
+  "auth": {
+    "login": "Log In",
+    "logout": "Log Out",
+    "username": "Username",
+    "password": "Password",
+    "invalidCredentials": "Invalid username or password"
+  }
+}

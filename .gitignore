@@ -1,1 +1,23 @@
+# macOS
 .DS_Store
+
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+
+# SQLite databases (dev db stays local)
+*.db
+*.db-journal
+
+# Vite cache
+.vite/
+
+# TypeScript build info
+*.tsbuildinfo
