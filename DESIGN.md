@@ -182,7 +182,7 @@ It is normal to have multiple non-archived weeks at once. The "current upcoming 
 
 ## 4. Assigner algorithm
 
-A deterministic, greedy slot-first algorithm that produces a draft of assignments. Lives as a **pure function** in `server/services/assigner.js` — no DB calls, no randomness, plain-object inputs and outputs. The route handler does all DB I/O around it.
+A deterministic, greedy slot-first algorithm that produces a draft of assignments. Lives as a **pure function** in `server/services/assigner.ts` — no DB calls, no randomness, plain-object inputs and outputs. The route handler does all DB I/O around it.
 
 ### Inputs
 
@@ -370,27 +370,32 @@ GET    /weeks/:weekId/export.pdf       → PDF binary
 
 ```
 cafe-scheduler/
-├── server/                  Express app
+├── server/                  Express app (TypeScript)
 │   ├── prisma/              schema + migrations + seed
-│   ├── routes/              one file per area
-│   ├── services/            
-│   │   └── assigner.js      pure function, heavily tested
-│   ├── middleware/          auth, error handling
-│   └── index.js             entrypoint
-├── client/                  Vite + React
+│   ├── src/
+│   │   ├── routes/          one file per area
+│   │   ├── services/        
+│   │   │   └── assigner.ts  pure function, heavily tested
+│   │   ├── middleware/      auth, error handling
+│   │   └── index.ts         entrypoint
+│   └── tsconfig.json
+├── client/                  Vite + React (TypeScript)
 │   ├── src/
 │   │   ├── pages/           one component per route
 │   │   ├── components/      shared UI
 │   │   ├── api/             fetch wrappers
 │   │   ├── i18n/            translation files
-│   │   └── App.jsx
-│   └── index.html
+│   │   └── App.tsx
+│   ├── index.html
+│   └── tsconfig.json
+├── shared/                  types used by both server and client
+│   └── types.ts
 ├── DESIGN.md                this file
 ├── CLAUDE.md                operating instructions
 └── README.md                setup + run instructions
 ```
 
-Run server and client as independent npm projects. Not workspaces.
+Run server and client as independent npm projects. Not workspaces. The `shared/` directory is imported by both via relative paths.
 
 ### Internationalization
 

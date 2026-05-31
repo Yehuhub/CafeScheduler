@@ -14,7 +14,10 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 
 ## Code style
 
-- **JavaScript, not TypeScript** (for now — can revisit). Use JSDoc comments for non-obvious function signatures.
+- **TypeScript** on both server and client. Use `strict: true` in `tsconfig.json`.
+- **Prefer real types over `any`.** If reaching for `any`, that's a sign to think harder. `unknown` + narrowing is usually the right move.
+- **Shared types** (e.g., API response shapes, slot enums, week status) live in `/shared` and are imported by both server and client. Don't duplicate them.
+- **Derive types from Prisma** where possible (`Prisma.UserGetPayload<...>`) rather than redefining them manually.
 - **Modules:** ES modules (`import`/`export`) on both server and client.
 - **Formatting:** Prettier defaults. 2-space indent. Semicolons.
 - **Naming:** camelCase for variables/functions, PascalCase for React components, snake_case never.
@@ -26,10 +29,10 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 
 - **All DB access goes through Prisma.** No raw SQL except for the session store.
 - **Migrations:** every schema change is a Prisma migration. Never edit migration files after they're applied.
-- **The assigner lives in `server/services/assigner.js` and is a pure function.** No DB calls. No randomness. No `Date.now()` inside it — pass time-dependent data as input. This is the highest-value testable unit in the system.
+- **The assigner lives in `server/services/assigner.ts` and is a pure function.** No DB calls. No randomness. No `Date.now()` inside it — pass time-dependent data as input. This is the highest-value testable unit in the system.
 - **Route handlers are thin.** Validation → service call → response. Business logic goes in `services/`.
 - **Auth middleware** enforces login + role. Apply at the router level, not per-handler.
-- **All state-transition logic for Week.status lives in one place** (`services/weekState.js` or similar). Don't sprinkle it across routes.
+- **All state-transition logic for Week.status lives in one place** (`services/weekState.ts` or similar). Don't sprinkle it across routes.
 - **Wrap multi-step writes in Prisma transactions** (`prisma.$transaction`). The assigner run is the obvious case.
 
 ## Frontend specifics
