@@ -1,0 +1,65 @@
+# CLAUDE.md — Operating instructions
+
+Read this and DESIGN.md at the start of every session. DESIGN.md is the source of truth for what to build; this file is how to build it.
+
+---
+
+## Ground rules
+
+- **DESIGN.md is the spec.** If a request conflicts with DESIGN.md, surface the conflict before implementing. Don't silently expand scope.
+- **Non-goals are non-goals.** If asked to add something on the Non-goals list, push back and confirm before building.
+- **Ask before adding dependencies.** New npm packages need a one-line justification and approval. Prefer the standard library and what's already installed.
+- **Small, focused changes.** Prefer many small commits over sweeping ones. Don't refactor unrelated code while making a change.
+- **No silent fallbacks.** If something can't be done, say so. Don't paper over errors with try/catch + console.log.
+
+## Code style
+
+- **JavaScript, not TypeScript** (for now — can revisit). Use JSDoc comments for non-obvious function signatures.
+- **Modules:** ES modules (`import`/`export`) on both server and client.
+- **Formatting:** Prettier defaults. 2-space indent. Semicolons.
+- **Naming:** camelCase for variables/functions, PascalCase for React components, snake_case never.
+- **Async:** prefer `async`/`await` over `.then()` chains.
+- **Errors:** throw real `Error` objects, not strings. Use a custom error class (e.g., `HttpError`) for API errors that need a status code.
+- **Comments:** explain *why*, not *what*. Skip comments that just restate the code.
+
+## Backend specifics
+
+- **All DB access goes through Prisma.** No raw SQL except for the session store.
+- **Migrations:** every schema change is a Prisma migration. Never edit migration files after they're applied.
+- **The assigner lives in `server/services/assigner.js` and is a pure function.** No DB calls. No randomness. No `Date.now()` inside it — pass time-dependent data as input. This is the highest-value testable unit in the system.
+- **Route handlers are thin.** Validation → service call → response. Business logic goes in `services/`.
+- **Auth middleware** enforces login + role. Apply at the router level, not per-handler.
+- **All state-transition logic for Week.status lives in one place** (`services/weekState.js` or similar). Don't sprinkle it across routes.
+- **Wrap multi-step writes in Prisma transactions** (`prisma.$transaction`). The assigner run is the obvious case.
+
+## Frontend specifics
+
+- **One component per file** for pages; small shared components can group.
+- **No global state library** (no Redux, Zustand, etc.) unless we hit a clear need. React state + context is enough for this size.
+- **All API calls go through `src/api/`** wrappers. No `fetch()` calls scattered in components.
+- **All user-facing strings go through `t()` (i18next).** Even during English-only phase. This is the cheapest time to enforce it.
+- **Tailwind only.** No custom CSS files except `index.css` for resets and CSS variables.
+- **Mobile-first.** Design at narrow widths first, enhance for wider screens. Test in narrow viewport regularly.
+- **Logical CSS properties** (`ms-`/`me-` instead of `ml-`/`mr-` in Tailwind) where it costs nothing — pays off for RTL later.
+
+## Testing
+
+- **The assigner gets real tests.** Vitest, table-driven, covering: basic assignment, understaffing, weekend rotation, dual-role packing, day-uniqueness constraint, determinism (same input → same output).
+- **Route handlers get smoke tests** (one happy path per route). Not aiming for 100% coverage.
+- **No frontend tests for v1** unless something complex emerges. The UI will change a lot early.
+
+## Things to avoid
+
+- Don't add features from the Non-goals list.
+- Don't generalize early. If something is used in exactly one place, leave it there.
+- Don't over-abstract. A 30-line route handler is fine. Don't split it into 4 helper functions.
+- Don't add ORMs/query builders on top of Prisma.
+- Don't add a CSS framework on top of Tailwind.
+- Don't add a component library (no shadcn/ui, no MUI) unless we explicitly decide to.
+- Don't write defensive null checks for things that can't be null per the schema.
+
+## When in doubt
+
+- Match what's already in the codebase.
+- Ask. A two-line clarifying question is cheaper than a wrong implementation.
+- Prefer doing less. The system is small on purpose.
