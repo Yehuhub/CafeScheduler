@@ -5,5 +5,42 @@
     "username": "Username",
     "password": "Password",
     "invalidCredentials": "Invalid username or password"
+  },
+  "users": {
+    "title": "Manage Users",
+    "newUser": "New User",
+    "createUser": "Create User",
+    "editUser": "Edit User",
+    "resetPassword": "Reset Password",
+    "name": "Name",
+    "username": "Username",
+    "password": "Password",
+    "newPassword": "New Password",
+    "role": "Role",
+    "boss": "Boss",
+    "employee": "Employee",
+    "isCook": "Cook",
+    "isBarista": "Barista",
+    "defaultShiftsPerWeek": "Shifts / week",
+    "isActive": "Active",
+    "inactive": "Inactive",
+    "shiftsPerWeek": "{{count}} shifts/week",
+    "loadError": "Failed to load users",
+    "noUsers": "No users yet",
+    "showInactive": "Show inactive users",
+    "resetPasswordFor": "Set a new password for {{name}}.",
+    "passwordResetSuccess": "Password updated successfully."
+  },
+  "employee": {
+    "title": "My Profile",
+    "roles": "Roles"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "edit": "Edit",
+    "close": "Close",
+    "loading": "Loading…",
+    "unknownError": "Something went wrong"
   }
 }
