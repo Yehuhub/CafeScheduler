@@ -21,3 +21,5 @@ build/
 
 # TypeScript build info
 *.tsbuildinfo
+
+.vscode
