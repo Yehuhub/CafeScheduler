@@ -1,5 +1,15 @@
 import type { RequestHandler } from "express";
+import type { User } from "@prisma/client";
 import type { Role } from "../../../shared/types";
+import prisma from "../lib/prisma";
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: User;
+    }
+  }
+}
 
 // Augment express-session so req.session.userId / role are typed everywhere
 declare module "express-session" {
@@ -9,14 +19,23 @@ declare module "express-session" {
   }
 }
 
-// Callers that need a deactivated-user check should re-query the DB themselves;
-// this middleware only validates that a session exists.
-export const requireLogin: RequestHandler = (req, res, next) => {
+export const requireLogin: RequestHandler = async (req, res, next) => {
   if (!req.session.userId) {
     res.status(401).json({ error: "Not authenticated", code: "UNAUTHENTICATED" });
     return;
   }
-  next();
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.session.userId } });
+    if (!user || !user.isActive) {
+      req.session.destroy(() => {});
+      res.status(401).json({ error: "Not authenticated", code: "UNAUTHENTICATED" });
+      return;
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
 };
 
 // Must be composed after requireLogin

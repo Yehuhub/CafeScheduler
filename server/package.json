@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.0.1",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "npm run db:seed && tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/src/index.js",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
+    "db:seed": "prisma db seed",
     "test": "vitest"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.19.0",

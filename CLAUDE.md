@@ -28,7 +28,10 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 ## Backend specifics
 
 - **All DB access goes through Prisma.** No raw SQL except for the session store.
-- **Migrations:** every schema change is a Prisma migration. Never edit migration files after they're applied.
+- **Migrations:** every schema change is a Prisma migration. Never edit migration files after they're applied. Migrations are committed to git — they are the schema history.
+- **SQLite has no native enums.** All enum-like fields in `schema.prisma` use `String`. The TypeScript union types in `shared/types.ts` (`Role`, `WeekStatus`, `Slot`, `RoleWorking`) are the source of truth. Pattern: validate incoming strings against the union at the API boundary before any DB write; cast reads from Prisma (`user.role as Role`) since we control all writes. One guard per field per mutating route — don't scatter it.
+- **`DATABASE_URL` is resolved relative to `prisma/schema.prisma`**, not the server root. The correct value is `file:./dev.db` (produces `server/prisma/dev.db`). Don't change it to `file:./prisma/dev.db` — that double-nests the path.
+- **`server/tsconfig.json` has `rootDir: ".."`** because `include` spans `../shared/**/*`. This is intentional; don't "fix" it to `./src`.
 - **The assigner lives in `server/services/assigner.ts` and is a pure function.** No DB calls. No randomness. No `Date.now()` inside it — pass time-dependent data as input. This is the highest-value testable unit in the system.
 - **Route handlers are thin.** Validation → service call → response. Business logic goes in `services/`.
 - **Auth middleware** enforces login + role. Apply at the router level, not per-handler.
