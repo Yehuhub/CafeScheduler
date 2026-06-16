@@ -35,6 +35,37 @@
     "confirmYourPassword": "Your password",
     "cannotDeleteSelf": "You cannot delete your own account"
   },
+  "nav": {
+    "schedule": "Schedule",
+    "users": "Users"
+  },
+  "weeks": {
+    "title": "Schedule",
+    "openNextWeek": "Open Next Week",
+    "weekOf": "Week of {{date}}",
+    "loadError": "Failed to load weeks",
+    "noWeeks": "No weeks yet. Open the first week to get started.",
+    "sundayNudge": "It's Sunday — time to open next week!",
+    "confirmWipeTitle": "Reopen Availability?",
+    "confirmWipeBody": "This will delete all draft assignments for this week. You'll need to run the assigner again afterwards.",
+    "confirmWipeAction": "Yes, Reopen",
+    "status": {
+      "availability_open": "Open",
+      "availability_closed": "Closed",
+      "draft": "Draft",
+      "published": "Published"
+    },
+    "action": {
+      "closeAvailability": "Close Availability",
+      "reopenAvailability": "Reopen Availability",
+      "runAssigner": "Run Assigner",
+      "runAssignerSoon": "Coming soon",
+      "publish": "Publish"
+    },
+    "deleteWeek": "Delete Week",
+    "deleteWeekWarning": "This hides the week of {{date}} and all its data. Nothing is permanently erased.",
+    "deleteWeekConfirmPassword": "Your password"
+  },
   "employee": {
     "title": "My Profile",
     "roles": "Roles"

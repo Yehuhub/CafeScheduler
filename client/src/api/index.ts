@@ -1,4 +1,4 @@
-import type { UserDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -67,6 +67,22 @@ export const api = {
       }),
     delete: (id: number, password: string) =>
       request<void>(`/users/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ password }),
+      }),
+  },
+
+  weeks: {
+    list: () => request<{ weeks: WeekDto[] }>("/weeks"),
+    current: () => request<{ week: WeekDto | null }>("/weeks/current"),
+    create: () => request<{ week: WeekDto }>("/weeks", { method: "POST" }),
+    updateStatus: (id: number, status: WeekStatus) =>
+      request<{ week: WeekDto }>(`/weeks/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
+    delete: (id: number, password: string) =>
+      request<void>(`/weeks/${id}`, {
         method: "DELETE",
         body: JSON.stringify({ password }),
       }),

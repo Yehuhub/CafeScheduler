@@ -15,7 +15,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate(user.role === "boss" ? "/users" : "/", { replace: true });
+      navigate(user.role === "boss" ? "/dashboard" : "/", { replace: true });
     }
   }, [user, authLoading, navigate]);
 
@@ -25,7 +25,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const loggedIn = await login(username, password);
-      navigate(loggedIn.role === "boss" ? "/users" : "/", { replace: true });
+      navigate(loggedIn.role === "boss" ? "/dashboard" : "/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.invalidCredentials"));
     } finally {

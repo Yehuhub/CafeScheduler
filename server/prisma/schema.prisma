@@ -32,6 +32,7 @@ model Week {
   id          Int       @id @default(autoincrement())
   startDate   DateTime  @unique
   status      String    @default("availability_open") // WeekStatus
+  isDeleted   Boolean   @default(false)
   createdAt   DateTime  @default(now())
   publishedAt DateTime?
 

@@ -8,7 +8,7 @@ export default function EmployeePage() {
   const navigate = useNavigate();
 
   if (!user) return null;
-  if (user.role === "boss") return <Navigate to="/users" replace />;
+  if (user.role === "boss") return <Navigate to="/dashboard" replace />;
 
   const roles = [
     user.isCook && t("users.isCook"),

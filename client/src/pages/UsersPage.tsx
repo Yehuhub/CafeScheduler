@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
 import { api, type CreateUserInput, type UpdateUserInput } from "../api";
 import type { UserDto } from "@shared/types";
+import BossNav from "../components/BossNav";
 
 // ── Modal state ──────────────────────────────────────────────────────────────
 
@@ -560,8 +560,7 @@ function UserCard({
 
 export default function UsersPage() {
   const { t } = useTranslation();
-  const { user: currentUser, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
 
   const [users, setUsers] = useState<UserDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -576,11 +575,6 @@ export default function UsersPage() {
       .catch(() => setError(t("users.loadError")))
       .finally(() => setLoading(false));
   }, [t]);
-
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
-  };
 
   const handleCreated = (user: UserDto) => {
     setUsers((prev) => [...prev, user].sort((a, b) => a.name.localeCompare(b.name)));
@@ -599,25 +593,18 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white px-4 py-3">
+      <BossNav />
+      <div className="border-b border-gray-200 bg-white px-4 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <h1 className="text-lg font-semibold">{t("users.title")}</h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setModal({ type: "create" })}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              + {t("users.newUser")}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
-            >
-              {t("auth.logout")}
-            </button>
-          </div>
+          <button
+            onClick={() => setModal({ type: "create" })}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            + {t("users.newUser")}
+          </button>
         </div>
-      </header>
+      </div>
 
       <main className="mx-auto max-w-2xl space-y-3 p-4">
         {loading && (
