@@ -11,7 +11,8 @@ type ModalState =
   | null
   | { type: "create" }
   | { type: "edit"; user: UserDto }
-  | { type: "resetPassword"; user: UserDto };
+  | { type: "resetPassword"; user: UserDto }
+  | { type: "delete"; user: UserDto };
 
 // ── Small shared pieces ──────────────────────────────────────────────────────
 
@@ -417,16 +418,87 @@ function ResetPasswordModal({
   );
 }
 
+// ── Delete user modal ────────────────────────────────────────────────────────
+
+function DeleteUserModal({
+  user,
+  onClose,
+  onDeleted,
+}: {
+  user: UserDto;
+  onClose: () => void;
+  onDeleted: (id: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.users.delete(user.id, password);
+      onDeleted(user.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title={t("users.deleteUser")} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm text-gray-600">
+          {t("users.deleteWarning", { name: user.name })}
+        </p>
+        <Field label={t("users.confirmYourPassword")}>
+          <TextInput
+            type="password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+            required
+          />
+        </Field>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {submitting ? "…" : t("users.deleteUser")}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ── User card ────────────────────────────────────────────────────────────────
 
 function UserCard({
   user,
+  currentUserId,
   onEdit,
   onResetPassword,
+  onDelete,
 }: {
   user: UserDto;
+  currentUserId: number;
   onEdit: () => void;
   onResetPassword: () => void;
+  onDelete: () => void;
 }) {
   const { t } = useTranslation();
   const roles = [
@@ -470,6 +542,14 @@ function UserCard({
           >
             {t("users.password")}
           </button>
+          {user.id !== currentUserId && (
+            <button
+              onClick={onDelete}
+              className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+            >
+              {t("users.deleteUser")}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -480,7 +560,7 @@ function UserCard({
 
 export default function UsersPage() {
   const { t } = useTranslation();
-  const { logout } = useAuth();
+  const { user: currentUser, logout } = useAuth();
   const navigate = useNavigate();
 
   const [users, setUsers] = useState<UserDto[]>([]);
@@ -509,6 +589,11 @@ export default function UsersPage() {
 
   const handleSaved = (updated: UserDto) => {
     setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    setModal(null);
+  };
+
+  const handleDeleted = (id: number) => {
+    setUsers((prev) => prev.filter((u) => u.id !== id));
     setModal(null);
   };
 
@@ -557,8 +642,10 @@ export default function UsersPage() {
           <UserCard
             key={user.id}
             user={user}
+            currentUserId={currentUser!.id}
             onEdit={() => setModal({ type: "edit", user })}
             onResetPassword={() => setModal({ type: "resetPassword", user })}
+            onDelete={() => setModal({ type: "delete", user })}
           />
         ))}
       </main>
@@ -575,6 +662,13 @@ export default function UsersPage() {
       )}
       {modal?.type === "resetPassword" && (
         <ResetPasswordModal user={modal.user} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "delete" && (
+        <DeleteUserModal
+          user={modal.user}
+          onClose={() => setModal(null)}
+          onDeleted={handleDeleted}
+        />
       )}
     </div>
   );

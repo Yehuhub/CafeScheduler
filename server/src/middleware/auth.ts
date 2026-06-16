@@ -26,7 +26,7 @@ export const requireLogin: RequestHandler = async (req, res, next) => {
   }
   try {
     const user = await prisma.user.findUnique({ where: { id: req.session.userId } });
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.isDeleted) {
       req.session.destroy(() => {});
       res.status(401).json({ error: "Not authenticated", code: "UNAUTHENTICATED" });
       return;

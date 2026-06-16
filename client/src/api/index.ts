@@ -65,5 +65,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ newPassword }),
       }),
+    delete: (id: number, password: string) =>
+      request<void>(`/users/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ password }),
+      }),
   },
 };

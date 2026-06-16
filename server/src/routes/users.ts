@@ -36,7 +36,10 @@ function toDto(user: {
 // GET /users
 router.get("/", requireLogin, requireBoss, async (_req, res, next) => {
   try {
-    const users = await prisma.user.findMany({ orderBy: { name: "asc" } });
+    const users = await prisma.user.findMany({
+      where: { isDeleted: false },
+      orderBy: { name: "asc" },
+    });
     res.json({ users: users.map(toDto) });
   } catch (err) {
     next(err);
@@ -151,7 +154,7 @@ router.patch("/:id", requireLogin, requireBoss, async (req, res, next) => {
     }
 
     const user = await prisma.user.update({
-      where: { id },
+      where: { id, isDeleted: false },
       data,
     });
 
@@ -172,11 +175,42 @@ router.post("/:id/reset-password", requireLogin, requireBoss, async (req, res, n
       throw new HttpError(400, "newPassword must be at least 6 characters", "VALIDATION_ERROR");
     }
 
-    const exists = await prisma.user.findUnique({ where: { id } });
+    const exists = await prisma.user.findUnique({ where: { id, isDeleted: false } });
     if (!exists) throw new HttpError(404, "User not found", "NOT_FOUND");
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({ where: { id }, data: { passwordHash } });
+
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /users/:id
+router.delete("/:id", requireLogin, requireBoss, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new HttpError(400, "Invalid user id", "VALIDATION_ERROR");
+
+    if (id === req.user!.id) {
+      throw new HttpError(403, "You cannot delete your own account", "CANNOT_DELETE_SELF");
+    }
+
+    const { password } = req.body as Record<string, unknown>;
+    if (typeof password !== "string" || password === "") {
+      throw new HttpError(400, "password is required", "VALIDATION_ERROR");
+    }
+
+    const valid = await bcrypt.compare(password, req.user!.passwordHash);
+    if (!valid) {
+      throw new HttpError(403, "Incorrect password", "INVALID_PASSWORD");
+    }
+
+    const target = await prisma.user.findUnique({ where: { id, isDeleted: false } });
+    if (!target) throw new HttpError(404, "User not found", "NOT_FOUND");
+
+    await prisma.user.update({ where: { id }, data: { isDeleted: true } });
 
     res.status(204).end();
   } catch (err) {

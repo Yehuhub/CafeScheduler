@@ -20,6 +20,7 @@ model User {
   isBarista            Boolean
   defaultShiftsPerWeek Int
   isActive             Boolean  @default(true)
+  isDeleted            Boolean  @default(false)
   createdAt            DateTime @default(now())
 
   availability      Availability[]

@@ -29,7 +29,11 @@
     "noUsers": "No users yet",
     "showInactive": "Show inactive users",
     "resetPasswordFor": "Set a new password for {{name}}.",
-    "passwordResetSuccess": "Password updated successfully."
+    "passwordResetSuccess": "Password updated successfully.",
+    "deleteUser": "Delete User",
+    "deleteWarning": "This permanently removes {{name}} from the system. Their past assignments are kept for records.",
+    "confirmYourPassword": "Your password",
+    "cannotDeleteSelf": "You cannot delete your own account"
   },
   "employee": {
     "title": "My Profile",
