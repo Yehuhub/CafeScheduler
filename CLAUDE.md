@@ -37,6 +37,10 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 - **Auth middleware** enforces login + role. Apply at the router level, not per-handler.
 - **All state-transition logic for Week.status lives in one place** (`services/weekState.ts` or similar). Don't sprinkle it across routes.
 - **Wrap multi-step writes in Prisma transactions** (`prisma.$transaction`). The assigner run is the obvious case.
+- **Soft-delete pattern** (`isDeleted Boolean @default(false)`) is used for both `User` and `Week`. Always filter `{ isDeleted: false }` in queries. Never hard-delete these rows — FK integrity and history depend on it.
+- **Destructive actions require the boss's own password** in the request body. Verify with `bcrypt.compare(password, req.user!.passwordHash)` before applying. This applies to: delete user, delete week.
+- **`POST /weeks` restores deleted rows** rather than failing on the unique `startDate` constraint. If a deleted week exists at the computed startDate, wipe its stale data and set `isDeleted: false`. See `routes/weeks.ts` for the pattern.
+- **Boss seed script**: `npm run db:seed` (from `server/`). Reads `BOSS_NAME`, `BOSS_USERNAME`, `BOSS_PASSWORD` from `.env`. Runs automatically before `tsx watch` on `npm run dev`. Re-running only updates the password hash.
 
 ## Frontend specifics
 
@@ -47,6 +51,9 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 - **Tailwind only.** No custom CSS files except `index.css` for resets and CSS variables.
 - **Mobile-first.** Design at narrow widths first, enhance for wider screens. Test in narrow viewport regularly.
 - **Logical CSS properties** (`ms-`/`me-` instead of `ml-`/`mr-` in Tailwind) where it costs nothing — pays off for RTL later.
+- **Shared types use the `@shared` alias.** `import type { ... } from "@shared/types"`. Alias is defined in `vite.config.ts` and mirrored in `client/tsconfig.json` `paths`. Don't use deep relative paths (`../../../../shared/...`).
+- **Auth state lives in `AuthContext`.** `useAuth()` gives `{ user, loading, login, logout }`. Boss redirects go to `/dashboard`; employee redirects go to `/`.
+- **Boss pages use `BossNav`** (`src/components/BossNav.tsx`) for consistent navigation. Don't inline a duplicate header.
 
 ## Testing
 

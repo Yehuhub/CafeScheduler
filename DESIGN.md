@@ -38,11 +38,16 @@ All entities below map to database tables. Use Prisma for schema definition.
 | `isCook` | boolean | |
 | `isBarista` | boolean | |
 | `defaultShiftsPerWeek` | int | template value, copied into WeeklyShiftCount when a new week is created |
-| `isActive` | boolean | soft-delete flag |
+| `isActive` | boolean | temporarily unavailable (vacation, sick) — still on the roster |
+| `isDeleted` | boolean | permanently left — hidden from all lists, login blocked, history preserved |
 | `createdAt` | datetime | |
 
 - Dual-role allowed (both `isCook` and `isBarista` can be true).
-- Soft delete: setting `isActive = false` prevents login and invalidates existing sessions. Old assignments remain intact.
+- `isActive = false`: employee is temporarily out. Still appears in the inactive filter. Prevents login.
+- `isDeleted = true`: employee quit. Hidden everywhere. All historical assignments remain intact.
+- Both flags block login. `requireLogin` checks `isActive && !isDeleted` on every request.
+- A boss cannot delete their own account. This guarantees at least one boss always exists.
+- Password confirmation required to delete a user.
 
 ### Week
 
@@ -51,12 +56,16 @@ All entities below map to database tables. Use Prisma for schema definition.
 | `id` | int, PK | |
 | `startDate` | date, unique | the Sunday this week begins |
 | `status` | enum | `"availability_open"` \| `"availability_closed"` \| `"draft"` \| `"published"` |
+| `isDeleted` | boolean | soft-delete flag — hidden from all lists but row is kept for FK integrity |
 | `createdAt` | datetime | |
 | `publishedAt` | datetime, nullable | |
 
 - One row per week.
 - Week starts Sunday (Israeli convention).
 - Multiple weeks can be active simultaneously (e.g., this week `published`, next week `availability_open`).
+- `startDate` is unique. Deleting a week and re-creating it **restores** the existing row (resets to `availability_open`, wipes stale assignments and availability, re-seeds WeeklyShiftCounts). ShiftRequirements are preserved on restore.
+- Password confirmation required to delete a week. Published weeks can be deleted.
+- `POST /weeks` computes the next startDate from the most recent **non-deleted** week only.
 
 ### Availability
 
@@ -432,3 +441,35 @@ Things deliberately punted but worth remembering:
 - **More slot types.** Schema supports `morning | mid | evening`. Adding a fourth (e.g., "late") is an enum migration + UI handling.
 - **Employee preferences.** "I prefer mornings." Would extend the assigner scoring.
 - **Fairness metrics.** Show the boss a fairness dashboard (who got the most weekend shifts over time, etc.).
+
+---
+
+## 9. Implementation status
+
+Use this to orient at the start of each session.
+
+### ✅ Done
+
+| Area | What's built |
+|---|---|
+| Auth | Login/logout, session cookie, `requireLogin` (checks `isActive` + `isDeleted` on every request), `requireBoss` |
+| Users — backend | `GET /users`, `POST /users`, `PATCH /users/:id`, `POST /users/:id/reset-password`, `DELETE /users/:id` |
+| Users — frontend | Boss: user list (active/inactive filter), create/edit/reset-password/delete modals. Employee: profile page |
+| Boss seed | `npm run db:seed` from `server/` — creates boss from `BOSS_*` env vars, runs automatically on `npm run dev` |
+| Weeks — backend | `GET /weeks`, `GET /weeks/current`, `GET /weeks/:id`, `POST /weeks`, `PATCH /weeks/:id/status`, `DELETE /weeks/:id` |
+| Weeks — frontend | Boss dashboard: week cards with status badges, per-status action buttons, create/delete week, confirmation modal for assignment-wiping backward transition |
+| State machine | `server/services/weekState.ts` — transition validation and side-effect flags |
+| Routing | `/login` → LoginPage; `/` → EmployeePage (employees) / redirect to `/dashboard` (boss); `/dashboard` → DashboardPage; `/users` → UsersPage |
+
+### ❌ Not yet built
+
+| Area | Notes |
+|---|---|
+| Availability form | Employee fills their weekly availability grid. `PUT /weeks/:weekId/availability/me` |
+| Shift requirements editor | Boss configures cooks/baristas needed per slot. `PUT /weeks/:weekId/requirements` |
+| Weekly shift count editor | Boss adjusts per-user shifts for a specific week. `PATCH /weeks/:weekId/shift-counts/:userId` |
+| Assigner | Pure function in `server/services/assigner.ts` + `POST /weeks/:weekId/assignments/run-assigner`. Transitions week to `draft`. "Run Assigner" button on dashboard is currently disabled. |
+| Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |
+| Published schedule | Employees view their assignments once week is published |
+| Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
+| PDF export | `GET /weeks/:weekId/export.pdf`. Stubbed. |
