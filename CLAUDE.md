@@ -11,6 +11,7 @@ Read this and DESIGN.md at the start of every session. DESIGN.md is the source o
 - **Ask before adding dependencies.** New npm packages need a one-line justification and approval. Prefer the standard library and what's already installed.
 - **Small, focused changes.** Prefer many small commits over sweeping ones. Don't refactor unrelated code while making a change.
 - **No silent fallbacks.** If something can't be done, say so. Don't paper over errors with try/catch + console.log.
+- **Backend before frontend.** For any full-stack feature, plan and implement the backend (routes, validation, DB) first as its own step. Only move to the frontend after the backend is done. Never bundle both into a single plan.
 
 ## Code style
 
