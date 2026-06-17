@@ -2,7 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
 import { api } from "../api";
-import type { WeekDto, WeekStatus } from "@shared/types";
+import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot } from "@shared/types";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+
+function cellKey(day: number, slot: string): string {
+  return `${day}-${slot}`;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,17 +172,246 @@ function DeleteWeekModal({
   );
 }
 
+// ── Stepper ───────────────────────────────────────────────────────────────────
+
+function Stepper({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <div className="flex items-center overflow-hidden rounded border border-gray-300">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, value - 1))}
+        className="px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-100 active:bg-gray-200"
+      >
+        −
+      </button>
+      <span className="w-6 border-x border-gray-300 py-0.5 text-center text-sm">{value}</span>
+      <button
+        type="button"
+        onClick={() => onChange(value + 1)}
+        className="px-1.5 py-0.5 text-sm text-gray-600 hover:bg-gray-100 active:bg-gray-200"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+// ── Requirements modal ────────────────────────────────────────────────────────
+
+type CellCounts = { cooksNeeded: number; baristasNeeded: number };
+type CellState = Record<string, CellCounts>;
+
+function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => void }) {
+  const { t } = useTranslation();
+  const [cells, setCells] = useState<CellState>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.requirements
+      .get(week.id)
+      .then(({ requirements }) => {
+        const initial: CellState = {};
+        for (const r of requirements) {
+          initial[cellKey(r.day, r.slot)] = {
+            cooksNeeded: r.cooksNeeded,
+            baristasNeeded: r.baristasNeeded,
+          };
+        }
+        // Morning and evening always present; mid only if a row existed
+        for (const day of DAYS) {
+          if (!initial[cellKey(day, "morning")]) initial[cellKey(day, "morning")] = { cooksNeeded: 1, baristasNeeded: 1 };
+          if (!initial[cellKey(day, "evening")]) initial[cellKey(day, "evening")] = { cooksNeeded: 1, baristasNeeded: 1 };
+        }
+        setCells(initial);
+      })
+      .catch(() => setLoadError(t("requirements.loadError")))
+      .finally(() => setLoading(false));
+  }, [week.id, t]);
+
+  const updateCount = (key: string, field: keyof CellCounts, value: number) => {
+    setCells((prev) => ({ ...prev, [key]: { ...prev[key], [field]: Math.max(0, value) } }));
+  };
+
+  const toggleMid = (day: number, on: boolean) => {
+    const key = cellKey(day, "mid");
+    setCells((prev) => {
+      const next = { ...prev };
+      if (on) {
+        next[key] = { cooksNeeded: 0, baristasNeeded: 0 };
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaveError(null);
+    setSubmitting(true);
+    try {
+      const entries = Object.entries(cells).map(([key, counts]) => {
+        const dashIdx = key.indexOf("-");
+        const day = parseInt(key.slice(0, dashIdx), 10);
+        const slot = key.slice(dashIdx + 1) as Slot;
+        return { day, slot, ...counts };
+      });
+      await api.requirements.put(week.id, entries);
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const showWarning = week.status === "draft" || week.status === "published";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <h2 className="text-base font-semibold">{t("requirements.title")}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+          {showWarning && (
+            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {t("requirements.warning")}
+            </div>
+          )}
+
+          {loading && <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>}
+          {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+
+          {!loading && !loadError && (
+            <div className="overflow-x-auto">
+              <table className="border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 z-10 bg-white pb-2 pe-3 text-start text-xs font-medium text-gray-400" />
+                    {DAYS.map((day) => (
+                      <th key={day} className="pb-2 text-center text-xs font-medium text-gray-500" style={{ minWidth: "4rem" }}>
+                        {t(`days.${day}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["morning", "evening"] as Slot[]).map((slot) => (
+                    <>
+                      {/* Slot section header */}
+                      <tr key={`${slot}-header`}>
+                        <td className="sticky left-0 z-10 bg-white border-t border-gray-200 pt-3 pb-1 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          {t(`slots.${slot}`)}
+                        </td>
+                        {DAYS.map((day) => <td key={day} className="border-t border-gray-200" />)}
+                      </tr>
+                      <tr key={`${slot}-cooks`}>
+                        <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.cooks")}</td>
+                        {DAYS.map((day) => {
+                          const key = cellKey(day, slot);
+                          return (
+                            <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                              <Stepper value={cells[key]?.cooksNeeded ?? 1} onChange={(v) => updateCount(key, "cooksNeeded", v)} />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr key={`${slot}-baristas`}>
+                        <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.baristas")}</td>
+                        {DAYS.map((day) => {
+                          const key = cellKey(day, slot);
+                          return (
+                            <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                              <Stepper value={cells[key]?.baristasNeeded ?? 1} onChange={(v) => updateCount(key, "baristasNeeded", v)} />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </>
+                  ))}
+
+                  {/* Mid section */}
+                  <tr>
+                    <td className="sticky left-0 z-10 bg-white border-t border-gray-200 pt-3 pb-1 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      {t("slots.mid")}
+                    </td>
+                    {DAYS.map((day) => <td key={day} className="border-t border-gray-200" />)}
+                  </tr>
+                  <tr>
+                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.midToggle")}</td>
+                    {DAYS.map((day) => {
+                      const midKey = cellKey(day, "mid");
+                      const hasMid = midKey in cells;
+                      return (
+                        <td key={day} className="py-1 ps-2 border-s border-gray-100 align-top">
+                          <div className="flex flex-col items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={hasMid}
+                              onChange={(e) => toggleMid(day, e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300 accent-indigo-600"
+                            />
+                            {hasMid && (
+                              <>
+                                <Stepper value={cells[midKey].cooksNeeded} onChange={(v) => updateCount(midKey, "cooksNeeded", v)} />
+                                <Stepper value={cells[midKey].baristasNeeded} onChange={(v) => updateCount(midKey, "baristasNeeded", v)} />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-200 px-4 py-3">
+          {saveError && <p className="mb-2 text-sm text-red-600">{saveError}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={submitting || loading}
+              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {submitting ? "…" : t("common.save")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Week card ─────────────────────────────────────────────────────────────────
 
 function WeekCard({
   week,
   onTransition,
   onDelete,
+  onEditRequirements,
   transitioning,
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
   onDelete: (week: WeekDto) => void;
+  onEditRequirements: (week: WeekDto) => void;
   transitioning: boolean;
 }) {
   const { t } = useTranslation();
@@ -188,6 +425,12 @@ function WeekCard({
         </span>
         <div className="flex items-center gap-2">
           <StatusBadge status={status} />
+          <button
+            onClick={() => onEditRequirements(week)}
+            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+          >
+            {t("requirements.editRequirements")}
+          </button>
           <button
             onClick={() => onDelete(week)}
             className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-600 hover:border-red-300 hover:bg-red-100"
@@ -265,6 +508,7 @@ export default function DashboardPage() {
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [deleteTarget, setDeleteTarget] = useState<WeekDto | null>(null);
+  const [requirementsTarget, setRequirementsTarget] = useState<WeekDto | null>(null);
 
   useEffect(() => {
     api.weeks
@@ -352,6 +596,7 @@ export default function DashboardPage() {
             week={week}
             onTransition={handleTransition}
             onDelete={setDeleteTarget}
+            onEditRequirements={setRequirementsTarget}
             transitioning={transitioning}
           />
         ))}
@@ -362,6 +607,13 @@ export default function DashboardPage() {
           onConfirm={() => void doTransition(confirm.weekId, confirm.to)}
           onCancel={() => setConfirm(null)}
           loading={transitioning}
+        />
+      )}
+
+      {requirementsTarget && (
+        <RequirementsModal
+          week={requirementsTarget}
+          onClose={() => setRequirementsTarget(null)}
         />
       )}
 

@@ -462,6 +462,8 @@ Use this to orient at the start of each session.
 | Routing | `/login` → LoginPage; `/` → EmployeePage (employees) / redirect to `/dashboard` (boss); `/dashboard` → DashboardPage; `/users` → UsersPage |
 | Availability — backend | `GET /weeks/:weekId/availability/me`, `PUT /weeks/:weekId/availability/me`, `GET /weeks/:weekId/availability` (boss). Sparse storage: only ticked (`available: true`) rows persisted; wipe-then-recreate in a transaction on PUT. |
 | Availability — frontend | Employee home page (`/`): horizontal 7-day × 3-slot checkbox grid (days as columns, slots as rows). Loads earliest `availability_open` week; pre-fills from existing availability; sparse-replace PUT on save. Profile card below the form. |
+| Shift requirements — backend | `GET /weeks/:weekId/requirements`, `PUT /weeks/:weekId/requirements`. Bulk replace in a transaction; no status gate (editable in any state). |
+| Shift requirements — frontend | "Requirements" button on every week card opens a modal. Horizontal table (days as columns, slot groups as rows — Morning/Evening always present, Mid toggleable per day). Stepper buttons (−/+) for cooks/baristas counts. Sticky left column so labels stay visible when scrolling horizontally on mobile. Amber warning banner shown on draft/published weeks. |
 
 ### ❌ Not yet built
 

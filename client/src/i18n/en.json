@@ -71,6 +71,15 @@
     "profileTitle": "My Profile",
     "roles": "Roles"
   },
+  "requirements": {
+    "title": "Shift Requirements",
+    "editRequirements": "Requirements",
+    "cooks": "Cooks",
+    "baristas": "Baristas",
+    "midToggle": "Mid",
+    "warning": "This week already has assignments. Changes here may make them inconsistent.",
+    "loadError": "Failed to load requirements"
+  },
   "availability": {
     "title": "My Availability",
     "intro": "Tick every slot you're available to work.",
