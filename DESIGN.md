@@ -460,12 +460,13 @@ Use this to orient at the start of each session.
 | Weeks — frontend | Boss dashboard: week cards with status badges, per-status action buttons, create/delete week, confirmation modal for assignment-wiping backward transition |
 | State machine | `server/services/weekState.ts` — transition validation and side-effect flags |
 | Routing | `/login` → LoginPage; `/` → EmployeePage (employees) / redirect to `/dashboard` (boss); `/dashboard` → DashboardPage; `/users` → UsersPage |
+| Availability — backend | `GET /weeks/:weekId/availability/me`, `PUT /weeks/:weekId/availability/me`, `GET /weeks/:weekId/availability` (boss). Sparse storage: only ticked (`available: true`) rows persisted; wipe-then-recreate in a transaction on PUT. |
+| Availability — frontend | Employee home page (`/`): horizontal 7-day × 3-slot checkbox grid (days as columns, slots as rows). Loads earliest `availability_open` week; pre-fills from existing availability; sparse-replace PUT on save. Profile card below the form. |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
-| Availability form | Employee fills their weekly availability grid. `PUT /weeks/:weekId/availability/me` |
 | Shift requirements editor | Boss configures cooks/baristas needed per slot. `PUT /weeks/:weekId/requirements` |
 | Weekly shift count editor | Boss adjusts per-user shifts for a specific week. `PATCH /weeks/:weekId/shift-counts/:userId` |
 | Assigner | Pure function in `server/services/assigner.ts` + `POST /weeks/:weekId/assignments/run-assigner`. Transitions week to `draft`. "Run Assigner" button on dashboard is currently disabled. |
