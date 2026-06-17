@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -27,6 +27,12 @@ export interface CreateUserInput {
   isCook: boolean;
   isBarista: boolean;
   defaultShiftsPerWeek: number;
+}
+
+export interface AvailabilityEntryInput {
+  day: number;
+  slot: Slot;
+  available: boolean;
 }
 
 export interface UpdateUserInput {
@@ -85,6 +91,16 @@ export const api = {
       request<void>(`/weeks/${id}`, {
         method: "DELETE",
         body: JSON.stringify({ password }),
+      }),
+  },
+
+  availability: {
+    getMine: (weekId: number) =>
+      request<{ availability: AvailabilityDto[] }>(`/weeks/${weekId}/availability/me`),
+    putMine: (weekId: number, entries: AvailabilityEntryInput[]) =>
+      request<{ availability: AvailabilityDto[] }>(`/weeks/${weekId}/availability/me`, {
+        method: "PUT",
+        body: JSON.stringify({ entries }),
       }),
   },
 };

@@ -67,8 +67,32 @@
     "deleteWeekConfirmPassword": "Your password"
   },
   "employee": {
-    "title": "My Profile",
+    "title": "My Schedule",
+    "profileTitle": "My Profile",
     "roles": "Roles"
+  },
+  "availability": {
+    "title": "My Availability",
+    "intro": "Tick every slot you're available to work.",
+    "weekOf": "Week of {{date}}",
+    "noOpenWeek": "No week is open for availability right now.",
+    "loadError": "Failed to load availability",
+    "save": "Save",
+    "saved": "Saved!"
+  },
+  "days": {
+    "0": "Sun",
+    "1": "Mon",
+    "2": "Tue",
+    "3": "Wed",
+    "4": "Thu",
+    "5": "Fri",
+    "6": "Sat"
+  },
+  "slots": {
+    "morning": "Morning",
+    "mid": "Mid",
+    "evening": "Evening"
   },
   "common": {
     "cancel": "Cancel",
