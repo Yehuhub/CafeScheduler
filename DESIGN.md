@@ -461,15 +461,16 @@ Use this to orient at the start of each session.
 | State machine | `server/services/weekState.ts` — transition validation and side-effect flags |
 | Routing | `/login` → LoginPage; `/` → EmployeePage (employees) / redirect to `/dashboard` (boss); `/dashboard` → DashboardPage; `/users` → UsersPage |
 | Availability — backend | `GET /weeks/:weekId/availability/me`, `PUT /weeks/:weekId/availability/me`, `GET /weeks/:weekId/availability` (boss). Sparse storage: only ticked (`available: true`) rows persisted; wipe-then-recreate in a transaction on PUT. |
-| Availability — frontend | Employee home page (`/`): horizontal 7-day × 3-slot checkbox grid (days as columns, slots as rows). Loads earliest `availability_open` week; pre-fills from existing availability; sparse-replace PUT on save. Profile card below the form. |
+| Availability — frontend | Employee home page (`/`): collapsed by default — shows "not filled yet" warning (amber) or "submitted" confirmation (green) + Edit Availability button. Button opens a 7-day × 3-slot grid; Save collapses back to confirmation view. Cancel discards draft. |
 | Shift requirements — backend | `GET /weeks/:weekId/requirements`, `PUT /weeks/:weekId/requirements`. Bulk replace in a transaction; no status gate (editable in any state). |
 | Shift requirements — frontend | "Requirements" button on every week card opens a modal. Horizontal table (days as columns, slot groups as rows — Morning/Evening always present, Mid toggleable per day). Stepper buttons (−/+) for cooks/baristas counts. Sticky left column so labels stay visible when scrolling horizontally on mobile. Amber warning banner shown on draft/published weeks. |
+| Weekly shift counts — backend | `GET /weeks/:weekId/shift-counts`, `PATCH /weeks/:weekId/shift-counts/:userId`. Upsert on PATCH (handles users added after week creation); no status gate. |
+| Weekly shift counts — frontend | "Shift Counts" button on every week card opens a modal. Lists active users with name, default-shifts hint, and a stepper. Saves only changed rows on submit. Amber warning banner on draft/published weeks. |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
-| Weekly shift count editor | Boss adjusts per-user shifts for a specific week. `PATCH /weeks/:weekId/shift-counts/:userId` |
 | Assigner | Pure function in `server/services/assigner.ts` + `POST /weeks/:weekId/assignments/run-assigner`. Transitions week to `draft`. "Run Assigner" button on dashboard is currently disabled. |
 | Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |
 | Published schedule | Employees view their assignments once week is published |
