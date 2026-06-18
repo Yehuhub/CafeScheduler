@@ -475,6 +475,7 @@ Use this to orient at the start of each session.
 | Area | Notes |
 |---|---|
 | Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |
+| Requirements/shift counts on published weeks | Requirements and Shift Counts buttons disappear (or become inaccessible) once a week is published. Per permission matrix §3,. Needs investigation and fix. |
 | Published schedule | Employees view their assignments once week is published |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
 | PDF export | `GET /weeks/:weekId/export.pdf`. Stubbed. |
