@@ -142,23 +142,28 @@ router.post("/", requireLogin, requireBoss, async (_req, res, next) => {
         data: { startDate, status: "availability_open" },
       });
 
-      // Copy ShiftRequirements from the previous non-deleted week
-      if (lastWeek) {
-        const reqs = await tx.shiftRequirement.findMany({
-          where: { weekId: lastWeek.id },
-        });
-        if (reqs.length > 0) {
-          await tx.shiftRequirement.createMany({
-            data: reqs.map((r) => ({
+      // Copy ShiftRequirements from the previous non-deleted week.
+      // If no previous week exists (or it had no requirements), seed a default
+      // template: 1 cook + 1 barista for morning and evening on every day.
+      const prevReqs = lastWeek
+        ? await tx.shiftRequirement.findMany({ where: { weekId: lastWeek.id } })
+        : [];
+
+      const reqsToSeed =
+        prevReqs.length > 0
+          ? prevReqs.map((r) => ({
               weekId: newWeek.id,
               day: r.day,
               slot: r.slot,
               cooksNeeded: r.cooksNeeded,
               baristasNeeded: r.baristasNeeded,
-            })),
-          });
-        }
-      }
+            }))
+          : [0, 1, 2, 3, 4, 5, 6].flatMap((day) => [
+              { weekId: newWeek.id, day, slot: "morning", cooksNeeded: 1, baristasNeeded: 1 },
+              { weekId: newWeek.id, day, slot: "evening", cooksNeeded: 1, baristasNeeded: 1 },
+            ]);
+
+      await tx.shiftRequirement.createMany({ data: reqsToSeed });
 
       const activeUsers = await tx.user.findMany({
         where: { isActive: true, isDeleted: false },

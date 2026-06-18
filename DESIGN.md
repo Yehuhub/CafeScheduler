@@ -466,12 +466,14 @@ Use this to orient at the start of each session.
 | Shift requirements — frontend | "Requirements" button on every week card opens a modal. Horizontal table (days as columns, slot groups as rows — Morning/Evening always present, Mid toggleable per day). Stepper buttons (−/+) for cooks/baristas counts. Sticky left column so labels stay visible when scrolling horizontally on mobile. Amber warning banner shown on draft/published weeks. |
 | Weekly shift counts — backend | `GET /weeks/:weekId/shift-counts`, `PATCH /weeks/:weekId/shift-counts/:userId`. Upsert on PATCH (handles users added after week creation); no status gate. |
 | Weekly shift counts — frontend | "Shift Counts" button on every week card opens a modal. Lists active users with name, default-shifts hint, and a stepper. Saves only changed rows on submit. Amber warning banner on draft/published weeks. |
+| Assigner — pure function | `server/src/services/assigner.ts`: deterministic greedy slot-first algorithm. Static scarcity sort, scoring (shift load ×10, weekend rotation +5/+100, dual-role penalty +3), userId tiebreaker. 12 Vitest tests in `server/tests/services/assigner.test.ts`. |
+| Assigner — route + frontend | `POST /weeks/:weekId/assignments/run-assigner`: gathers inputs, calls pure function, wipes+inserts in a transaction, transitions week to `draft`. "Run Assigner" button live on `availability_closed` weeks; "Re-run Assigner" on `draft` weeks. |
+| Week creation defaults | `POST /weeks` seeds 14 default ShiftRequirement rows (1 cook + 1 barista × morning + evening × 7 days) when no previous week exists or previous week has no requirements. |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
-| Assigner | Pure function in `server/services/assigner.ts` + `POST /weeks/:weekId/assignments/run-assigner`. Transitions week to `draft`. "Run Assigner" button on dashboard is currently disabled. |
 | Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |
 | Published schedule | Employees view their assignments once week is published |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |

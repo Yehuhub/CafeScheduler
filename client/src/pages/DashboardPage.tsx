@@ -518,14 +518,18 @@ function WeekCard({
   onDelete,
   onEditRequirements,
   onEditShiftCounts,
+  onRunAssigner,
   transitioning,
+  running,
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
   onDelete: (week: WeekDto) => void;
   onEditRequirements: (week: WeekDto) => void;
   onEditShiftCounts: (week: WeekDto) => void;
+  onRunAssigner: (weekId: number) => void;
   transitioning: boolean;
+  running: boolean;
 }) {
   const { t } = useTranslation();
   const status = week.status;
@@ -575,17 +579,17 @@ function WeekCard({
             <>
               <button
                 onClick={() => onTransition(week.id, status, "availability_open")}
-                disabled={transitioning}
+                disabled={transitioning || running}
                 className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 {t("weeks.action.reopenAvailability")}
               </button>
               <button
-                disabled
-                title={t("weeks.action.runAssignerSoon")}
-                className="rounded bg-indigo-100 px-3 py-1.5 text-sm font-medium text-indigo-400 cursor-not-allowed"
+                onClick={() => onRunAssigner(week.id)}
+                disabled={transitioning || running}
+                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {t("weeks.action.runAssigner")}
+                {running ? "…" : t("weeks.action.runAssigner")}
               </button>
             </>
           )}
@@ -594,14 +598,21 @@ function WeekCard({
             <>
               <button
                 onClick={() => onTransition(week.id, status, "availability_open")}
-                disabled={transitioning}
+                disabled={transitioning || running}
                 className="rounded border border-amber-300 px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
               >
                 {t("weeks.action.reopenAvailability")} ⚠
               </button>
               <button
+                onClick={() => onRunAssigner(week.id)}
+                disabled={transitioning || running}
+                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                {running ? "…" : t("weeks.action.rerunAssigner")}
+              </button>
+              <button
                 onClick={() => onTransition(week.id, status, "published")}
-                disabled={transitioning}
+                disabled={transitioning || running}
                 className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {t("weeks.action.publish")}
@@ -625,6 +636,8 @@ export default function DashboardPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [deleteTarget, setDeleteTarget] = useState<WeekDto | null>(null);
   const [requirementsTarget, setRequirementsTarget] = useState<WeekDto | null>(null);
@@ -673,6 +686,22 @@ export default function DashboardPage() {
     void doTransition(weekId, to);
   };
 
+  const handleRunAssigner = async (weekId: number) => {
+    setRunError(null);
+    setRunning(true);
+    try {
+      await api.assignments.runAssigner(weekId);
+      // Week transitions to draft on the server; update local state to reflect it
+      setWeeks((prev) =>
+        prev.map((w) => (w.id === weekId ? { ...w, status: "draft" as WeekStatus } : w))
+      );
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const isSunday = new Date().getUTCDay() === 0;
   const hasOpenWeek = weeks.some((w) => w.status !== "published");
 
@@ -700,6 +729,7 @@ export default function DashboardPage() {
 
         {createError && <p className="text-sm text-red-600">{createError}</p>}
         {transitionError && <p className="text-sm text-red-600">{transitionError}</p>}
+        {runError && <p className="text-sm text-red-600">{runError}</p>}
 
         {loading && (
           <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>
@@ -718,7 +748,9 @@ export default function DashboardPage() {
             onDelete={setDeleteTarget}
             onEditRequirements={setRequirementsTarget}
             onEditShiftCounts={setShiftCountsTarget}
+            onRunAssigner={handleRunAssigner}
             transitioning={transitioning}
+            running={running}
           />
         ))}
       </main>

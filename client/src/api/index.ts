@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ShiftRequirementDto, WeeklyShiftCountDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -109,6 +109,14 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ entries }),
       }),
+  },
+
+  assignments: {
+    runAssigner: (weekId: number) =>
+      request<{ assignments: AssignmentDto[] }>(
+        `/weeks/${weekId}/assignments/run-assigner`,
+        { method: "POST" }
+      ),
   },
 
   shiftCounts: {

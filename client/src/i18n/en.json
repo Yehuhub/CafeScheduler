@@ -59,6 +59,7 @@
       "closeAvailability": "Close Availability",
       "reopenAvailability": "Reopen Availability",
       "runAssigner": "Run Assigner",
+      "rerunAssigner": "Re-run Assigner",
       "runAssignerSoon": "Coming soon",
       "publish": "Publish"
     },
