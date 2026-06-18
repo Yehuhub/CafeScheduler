@@ -87,7 +87,10 @@
     "noOpenWeek": "No week is open for availability right now.",
     "loadError": "Failed to load availability",
     "save": "Save",
-    "saved": "Saved!"
+    "saved": "Saved!",
+    "editAvailability": "Edit Availability",
+    "notFilledWarning": "You haven't filled your availability for this week yet.",
+    "submitted": "Your availability has been submitted."
   },
   "days": {
     "0": "Sun",

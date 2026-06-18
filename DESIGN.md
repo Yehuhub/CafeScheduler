@@ -469,7 +469,6 @@ Use this to orient at the start of each session.
 
 | Area | Notes |
 |---|---|
-| Shift requirements editor | Boss configures cooks/baristas needed per slot. `PUT /weeks/:weekId/requirements` |
 | Weekly shift count editor | Boss adjusts per-user shifts for a specific week. `PATCH /weeks/:weekId/shift-counts/:userId` |
 | Assigner | Pure function in `server/services/assigner.ts` + `POST /weeks/:weekId/assignments/run-assigner`. Transitions week to `draft`. "Run Assigner" button on dashboard is currently disabled. |
 | Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |

@@ -29,13 +29,14 @@ function formatDate(iso: string): string {
 function AvailabilityForm({ week }: { week: WeekDto }) {
   const { t } = useTranslation();
 
-  // Set of "day-slot" keys that are ticked
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // persisted: what the server has saved; draft: working copy while editing
+  const [persisted, setPersisted] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState(false);
   const [loadingAvail, setLoadingAvail] = useState(true);
   const [avError, setAvError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   // Load existing availability once we have a week
   useEffect(() => {
@@ -45,16 +46,29 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
       .getMine(week.id)
       .then(({ availability }) => {
         const keys = new Set(availability.map((a) => cellKey(a.day, a.slot as Slot)));
-        setChecked(keys);
+        setPersisted(keys);
       })
       .catch(() => setAvError(t("availability.loadError")))
       .finally(() => setLoadingAvail(false));
   }, [week.id, t]);
 
-  const toggle = (day: number, slot: Slot) => {
-    setSaved(false);
+  const hasFilled = persisted.size > 0;
+  const canEdit = week.status === "availability_open";
+
+  const handleEdit = () => {
+    setDraft(new Set(persisted));
     setSaveError(null);
-    setChecked((prev) => {
+    setEditing(true);
+  };
+
+  const handleCancel = () => {
+    setEditing(false);
+    setSaveError(null);
+  };
+
+  const toggleDraft = (day: number, slot: Slot) => {
+    setSaveError(null);
+    setDraft((prev) => {
       const next = new Set(prev);
       const key = cellKey(day, slot);
       if (next.has(key)) {
@@ -68,18 +82,17 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
 
   const handleSave = async () => {
     setSaveError(null);
-    setSaved(false);
     setSaving(true);
     // Send the full grid so the server can do a sparse replace
     const entries = DAYS.flatMap((day) =>
-      SLOTS.map((slot) => ({ day, slot, available: checked.has(cellKey(day, slot)) }))
+      SLOTS.map((slot) => ({ day, slot, available: draft.has(cellKey(day, slot)) }))
     );
     try {
       const { availability } = await api.availability.putMine(week.id, entries);
-      // Reconcile local state with what the server persisted
+      // Reconcile persisted state with what the server saved, then collapse
       const keys = new Set(availability.map((a) => cellKey(a.day, a.slot as Slot)));
-      setChecked(keys);
-      setSaved(true);
+      setPersisted(keys);
+      setEditing(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : t("common.unknownError"));
     } finally {
@@ -89,16 +102,12 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
 
   return (
     <div className="rounded-lg border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold">{t("availability.title")}</h2>
-          <p className="text-xs text-gray-500">
-            {t("availability.weekOf", { date: formatDate(week.startDate) })}
-          </p>
-        </div>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold">{t("availability.title")}</h2>
+        <p className="text-xs text-gray-500">
+          {t("availability.weekOf", { date: formatDate(week.startDate) })}
+        </p>
       </div>
-
-      <p className="mb-4 text-sm text-gray-600">{t("availability.intro")}</p>
 
       {loadingAvail && (
         <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>
@@ -106,8 +115,32 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
 
       {avError && <p className="text-sm text-red-600">{avError}</p>}
 
-      {!loadingAvail && !avError && (
+      {!loadingAvail && !avError && !editing && (
         <>
+          {/* Filled/unfilled status */}
+          {!hasFilled && (
+            <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {t("availability.notFilledWarning")}
+            </div>
+          )}
+          {hasFilled && (
+            <p className="mb-3 text-sm text-green-600">{t("availability.submitted")}</p>
+          )}
+
+          <button
+            onClick={handleEdit}
+            disabled={!canEdit}
+            className="rounded bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("availability.editAvailability")}
+          </button>
+        </>
+      )}
+
+      {!loadingAvail && !avError && editing && (
+        <>
+          <p className="mb-4 text-sm text-gray-600">{t("availability.intro")}</p>
+
           {/* Grid — days as columns, slots as rows; overflow-x-auto for narrow screens */}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -137,8 +170,8 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
                         <td key={day} className="py-2 text-center">
                           <input
                             type="checkbox"
-                            checked={checked.has(key)}
-                            onChange={() => toggle(day, slot)}
+                            checked={draft.has(key)}
+                            onChange={() => toggleDraft(day, slot)}
                             className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-indigo-600"
                           />
                         </td>
@@ -152,16 +185,24 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
 
           <div className="mt-4 flex items-center justify-between gap-3">
             <div className="text-sm">
-              {saved && <span className="text-green-600">{t("availability.saved")}</span>}
               {saveError && <span className="text-red-600">{saveError}</span>}
             </div>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {saving ? "…" : t("availability.save")}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCancel}
+                disabled={saving}
+                className="rounded px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving ? "…" : t("availability.save")}
+              </button>
+            </div>
           </div>
         </>
       )}
