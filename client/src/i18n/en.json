@@ -80,6 +80,14 @@
     "warning": "This week already has assignments. Changes here may make them inconsistent.",
     "loadError": "Failed to load requirements"
   },
+  "shiftCounts": {
+    "title": "Weekly Shift Counts",
+    "editShiftCounts": "Shift Counts",
+    "default": "default: {{n}}",
+    "warning": "This week already has assignments. Changes here may make them inconsistent.",
+    "loadError": "Failed to load shift counts",
+    "saveError": "Failed to save shift counts"
+  },
   "availability": {
     "title": "My Availability",
     "intro": "Tick every slot you're available to work.",

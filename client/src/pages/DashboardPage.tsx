@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
 import { api } from "../api";
-import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot } from "@shared/types";
+import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot, UserDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -399,6 +399,117 @@ function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => vo
   );
 }
 
+// ── Shift counts modal ────────────────────────────────────────────────────────
+
+function ShiftCountsModal({ week, onClose }: { week: WeekDto; onClose: () => void }) {
+  const { t } = useTranslation();
+  const [users, setUsers] = useState<UserDto[]>([]);
+  const [counts, setCounts] = useState<Record<number, number>>({});
+  const [original, setOriginal] = useState<Record<number, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.shiftCounts.get(week.id), api.users.list()])
+      .then(([{ shiftCounts }, { users: allUsers }]) => {
+        const activeUsers = allUsers.filter((u) => u.isActive);
+        const initial: Record<number, number> = {};
+        for (const sc of shiftCounts) {
+          initial[sc.userId] = sc.shiftsThisWeek;
+        }
+        // Fall back to defaultShiftsPerWeek for users without a seeded row
+        for (const u of activeUsers) {
+          if (!(u.id in initial)) initial[u.id] = u.defaultShiftsPerWeek;
+        }
+        setUsers(activeUsers);
+        setCounts({ ...initial });
+        setOriginal({ ...initial });
+      })
+      .catch(() => setLoadError(t("shiftCounts.loadError")))
+      .finally(() => setLoading(false));
+  }, [week.id, t]);
+
+  const handleSave = async () => {
+    setSaveError(null);
+    setSubmitting(true);
+    try {
+      for (const user of users) {
+        if (counts[user.id] !== original[user.id]) {
+          await api.shiftCounts.patch(week.id, user.id, counts[user.id] ?? 0);
+        }
+      }
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const showWarning = week.status === "draft" || week.status === "published";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="flex max-h-[90vh] w-full max-w-sm flex-col rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <h2 className="text-base font-semibold">{t("shiftCounts.title")}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+
+        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {showWarning && (
+            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {t("shiftCounts.warning")}
+            </div>
+          )}
+
+          {loading && <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>}
+          {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+
+          {!loading && !loadError && users.map((user) => (
+            <div key={user.id} className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{user.name}</p>
+                <p className="text-xs text-gray-400">
+                  {t("shiftCounts.default", { n: user.defaultShiftsPerWeek })}
+                </p>
+              </div>
+              <Stepper
+                value={counts[user.id] ?? 0}
+                onChange={(v) => setCounts((prev) => ({ ...prev, [user.id]: v }))}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-gray-200 px-4 py-3">
+          {saveError && <p className="mb-2 text-sm text-red-600">{saveError}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={submitting || loading}
+              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {submitting ? "…" : t("common.save")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Week card ─────────────────────────────────────────────────────────────────
 
 function WeekCard({
@@ -406,12 +517,14 @@ function WeekCard({
   onTransition,
   onDelete,
   onEditRequirements,
+  onEditShiftCounts,
   transitioning,
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
   onDelete: (week: WeekDto) => void;
   onEditRequirements: (week: WeekDto) => void;
+  onEditShiftCounts: (week: WeekDto) => void;
   transitioning: boolean;
 }) {
   const { t } = useTranslation();
@@ -430,6 +543,12 @@ function WeekCard({
             className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
           >
             {t("requirements.editRequirements")}
+          </button>
+          <button
+            onClick={() => onEditShiftCounts(week)}
+            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+          >
+            {t("shiftCounts.editShiftCounts")}
           </button>
           <button
             onClick={() => onDelete(week)}
@@ -509,6 +628,7 @@ export default function DashboardPage() {
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [deleteTarget, setDeleteTarget] = useState<WeekDto | null>(null);
   const [requirementsTarget, setRequirementsTarget] = useState<WeekDto | null>(null);
+  const [shiftCountsTarget, setShiftCountsTarget] = useState<WeekDto | null>(null);
 
   useEffect(() => {
     api.weeks
@@ -597,6 +717,7 @@ export default function DashboardPage() {
             onTransition={handleTransition}
             onDelete={setDeleteTarget}
             onEditRequirements={setRequirementsTarget}
+            onEditShiftCounts={setShiftCountsTarget}
             transitioning={transitioning}
           />
         ))}
@@ -614,6 +735,13 @@ export default function DashboardPage() {
         <RequirementsModal
           week={requirementsTarget}
           onClose={() => setRequirementsTarget(null)}
+        />
+      )}
+
+      {shiftCountsTarget && (
+        <ShiftCountsModal
+          week={shiftCountsTarget}
+          onClose={() => setShiftCountsTarget(null)}
         />
       )}
 

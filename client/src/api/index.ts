@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ShiftRequirementDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ShiftRequirementDto, WeeklyShiftCountDto, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -109,6 +109,16 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ entries }),
       }),
+  },
+
+  shiftCounts: {
+    get: (weekId: number) =>
+      request<{ shiftCounts: WeeklyShiftCountDto[] }>(`/weeks/${weekId}/shift-counts`),
+    patch: (weekId: number, userId: number, shiftsThisWeek: number) =>
+      request<{ shiftCount: WeeklyShiftCountDto }>(
+        `/weeks/${weekId}/shift-counts/${userId}`,
+        { method: "PATCH", body: JSON.stringify({ shiftsThisWeek }) }
+      ),
   },
 
   availability: {
