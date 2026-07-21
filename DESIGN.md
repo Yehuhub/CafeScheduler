@@ -331,7 +331,7 @@ PATCH  /weeks/:weekId/shift-counts/:userId   { shiftsThisWeek }     → updated
 
 ### Assignments
 ```
-GET    /weeks/:weekId/assignments                                   → [...]
+GET    /weeks/:weekId/assignments        → { assignments, assignees: [{id,name}] }
                                                                     (employees: only if published)
 POST   /weeks/:weekId/assignments/run-assigner    🔒                → [...]
                                                                     wipes + regenerates
@@ -470,13 +470,14 @@ Use this to orient at the start of each session.
 | Assigner — route + frontend | `POST /weeks/:weekId/assignments/run-assigner`: gathers inputs, calls pure function, wipes+inserts in a transaction, transitions week to `draft`. "Run Assigner" button live on `availability_closed` weeks; "Re-run Assigner" on `draft` weeks. |
 | Week creation defaults | `POST /weeks` seeds 14 default ShiftRequirement rows (1 cook + 1 barista × morning + evening × 7 days) when no previous week exists or previous week has no requirements. |
 | Assignments — backend | `GET /weeks/:weekId/assignments` (boss: any status; employees: only when `published`, else 403), `POST /weeks/:weekId/assignments`, `DELETE /assignments/:id`. Add/remove gated to `draft`/`published`. Manual add is **override-friendly**: enforces the hard invariants (role capability, no duplicate cell, no overstaffing past the requirement cap — checked in a transaction) but lets the boss override availability, weekly shift count, and same-day double-booking. |
-| Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working hints; unavailable still selectable per override); chip × removes. Understaffed days auto-expand. |
+| Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working + at-weekly-limit hints as pills; flagged candidates get an amber "unsafe" row but stay selectable per override; safe candidates sort first). Chip × removes. Understaffed days auto-expand. |
+| Published schedule — employee view | Employee home (`/`) shows a read-only schedule card for the most recent `published` week, with a **My Shifts / Everyone** toggle. *My Shifts*: the employee's own shifts as a list. *Everyone*: a grid (days as columns, slots as rows, sticky slot column, horizontal scroll) with per-cell name chips color-coded by role (barista indigo, cook teal), own name highlighted. `GET /weeks/:weekId/assignments` also returns `assignees: [{id, name}]` so employees can render names without the boss-only user list. |
+| Availability tracking — dashboard | Each `availability_open` week card lists active employees who haven't submitted availability yet ("Waiting on availability" amber pills), or "Everyone has submitted" when complete — so the boss knows who to nudge. "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users`. |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
 | Requirements/shift counts on published weeks | Requirements and Shift Counts buttons disappear (or become inaccessible) once a week is published. Per permission matrix §3,. Needs investigation and fix. |
-| Published schedule | Employees view their assignments once week is published |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
 | PDF export | `GET /weeks/:weekId/export.pdf`. Stubbed. |

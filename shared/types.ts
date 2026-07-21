@@ -70,6 +70,13 @@ export interface AssignmentDto {
   createdAt: string;
 }
 
+// Minimal name lookup returned alongside a week's assignments so employees can
+// render the full published schedule without access to the boss-only user roster.
+export interface AssigneeDto {
+  id: number;
+  name: string;
+}
+
 export interface DashboardDto {
   filledCount: number;
   totalActiveUsers: number;

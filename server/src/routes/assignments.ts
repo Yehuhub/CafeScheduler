@@ -44,7 +44,17 @@ router.get("/weeks/:weekId/assignments", requireLogin, async (req, res, next) =>
 
     const rows = await prisma.assignment.findMany({ where: { weekId } });
 
-    res.json({ assignments: rows.map(toAssignmentDto) });
+    // Names for the assignees so employees can render the schedule without the
+    // boss-only user list. Include soft-deleted users — historical shifts keep their name.
+    const assigneeIds = [...new Set(rows.map((r) => r.userId))];
+    const assignees = assigneeIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: assigneeIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+
+    res.json({ assignments: rows.map(toAssignmentDto), assignees });
   } catch (err) {
     next(err);
   }

@@ -72,7 +72,11 @@
   "employee": {
     "title": "My Schedule",
     "profileTitle": "My Profile",
-    "roles": "Roles"
+    "roles": "Roles",
+    "myShifts": "My Shifts",
+    "everyone": "Everyone",
+    "noShifts": "You have no shifts scheduled this week.",
+    "emptySchedule": "No shifts scheduled this week."
   },
   "requirements": {
     "title": "Shift Requirements",
