@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
+import ReviewScheduleModal from "../components/ReviewScheduleModal";
 import { api } from "../api";
 import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot, UserDto } from "@shared/types";
 
@@ -510,6 +511,55 @@ function ShiftCountsModal({ week, onClose }: { week: WeekDto; onClose: () => voi
   );
 }
 
+// ── Pending availability (open weeks) ─────────────────────────────────────────
+
+// Lists active employees who haven't submitted availability yet for an open week,
+// so the boss knows who to nudge. "Submitted" = has at least one ticked slot,
+// mirroring the employee page (sparse storage means an all-empty submit reads as pending).
+function PendingAvailability({ weekId }: { weekId: number }) {
+  const { t } = useTranslation();
+  const [pending, setPending] = useState<UserDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.users.list(), api.availability.getAll(weekId)])
+      .then(([{ users }, { availability }]) => {
+        const submitted = new Set(availability.map((a) => a.userId));
+        const employees = users.filter((u) => u.isActive && u.role === "employee");
+        setPending(employees.filter((u) => !submitted.has(u.id)));
+      })
+      .catch(() => setError(t("weeks.loadError")));
+  }, [weekId, t]);
+
+  if (error)
+    return <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-red-600">{error}</p>;
+  if (pending === null) return null; // stay quiet while loading
+
+  return (
+    <div className="mt-3 border-t border-gray-100 pt-3">
+      {pending.length === 0 ? (
+        <p className="text-xs text-green-600">{t("weeks.allSubmitted")}</p>
+      ) : (
+        <>
+          <p className="text-xs font-medium text-gray-500">
+            {t("weeks.pendingAvailabilityTitle")}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {pending.map((u) => (
+              <span
+                key={u.id}
+                className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
+              >
+                {u.name}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Week card ─────────────────────────────────────────────────────────────────
 
 function WeekCard({
@@ -519,6 +569,7 @@ function WeekCard({
   onEditRequirements,
   onEditShiftCounts,
   onRunAssigner,
+  onReview,
   transitioning,
   running,
 }: {
@@ -528,6 +579,7 @@ function WeekCard({
   onEditRequirements: (week: WeekDto) => void;
   onEditShiftCounts: (week: WeekDto) => void;
   onRunAssigner: (weekId: number) => void;
+  onReview: (week: WeekDto) => void;
   transitioning: boolean;
   running: boolean;
 }) {
@@ -563,9 +615,8 @@ function WeekCard({
         </div>
       </div>
 
-      {status !== "published" && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {status === "availability_open" && (
+      <div className="mt-3 flex flex-wrap gap-2">
+        {status === "availability_open" && (
             <button
               onClick={() => onTransition(week.id, status, "availability_closed")}
               disabled={transitioning}
@@ -611,6 +662,13 @@ function WeekCard({
                 {running ? "…" : t("weeks.action.rerunAssigner")}
               </button>
               <button
+                onClick={() => onReview(week)}
+                disabled={transitioning || running}
+                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                {t("review.reviewDraft")}
+              </button>
+              <button
                 onClick={() => onTransition(week.id, status, "published")}
                 disabled={transitioning || running}
                 className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
@@ -619,8 +677,18 @@ function WeekCard({
               </button>
             </>
           )}
+
+          {status === "published" && (
+            <button
+              onClick={() => onReview(week)}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+            >
+              {t("review.editSchedule")}
+            </button>
+          )}
         </div>
-      )}
+
+      {status === "availability_open" && <PendingAvailability weekId={week.id} />}
     </div>
   );
 }
@@ -642,6 +710,7 @@ export default function DashboardPage() {
   const [deleteTarget, setDeleteTarget] = useState<WeekDto | null>(null);
   const [requirementsTarget, setRequirementsTarget] = useState<WeekDto | null>(null);
   const [shiftCountsTarget, setShiftCountsTarget] = useState<WeekDto | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<WeekDto | null>(null);
 
   useEffect(() => {
     api.weeks
@@ -749,6 +818,7 @@ export default function DashboardPage() {
             onEditRequirements={setRequirementsTarget}
             onEditShiftCounts={setShiftCountsTarget}
             onRunAssigner={handleRunAssigner}
+            onReview={setReviewTarget}
             transitioning={transitioning}
             running={running}
           />
@@ -774,6 +844,13 @@ export default function DashboardPage() {
         <ShiftCountsModal
           week={shiftCountsTarget}
           onClose={() => setShiftCountsTarget(null)}
+        />
+      )}
+
+      {reviewTarget && (
+        <ReviewScheduleModal
+          week={reviewTarget}
+          onClose={() => setReviewTarget(null)}
         />
       )}
 

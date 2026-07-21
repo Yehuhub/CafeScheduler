@@ -469,12 +469,13 @@ Use this to orient at the start of each session.
 | Assigner — pure function | `server/src/services/assigner.ts`: deterministic greedy slot-first algorithm. Static scarcity sort, scoring (shift load ×10, weekend rotation +5/+100, dual-role penalty +3), userId tiebreaker. 12 Vitest tests in `server/tests/services/assigner.test.ts`. |
 | Assigner — route + frontend | `POST /weeks/:weekId/assignments/run-assigner`: gathers inputs, calls pure function, wipes+inserts in a transaction, transitions week to `draft`. "Run Assigner" button live on `availability_closed` weeks; "Re-run Assigner" on `draft` weeks. |
 | Week creation defaults | `POST /weeks` seeds 14 default ShiftRequirement rows (1 cook + 1 barista × morning + evening × 7 days) when no previous week exists or previous week has no requirements. |
+| Assignments — backend | `GET /weeks/:weekId/assignments` (boss: any status; employees: only when `published`, else 403), `POST /weeks/:weekId/assignments`, `DELETE /assignments/:id`. Add/remove gated to `draft`/`published`. Manual add is **override-friendly**: enforces the hard invariants (role capability, no duplicate cell, no overstaffing past the requirement cap — checked in a transaction) but lets the boss override availability, weekly shift count, and same-day double-booking. |
+| Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working hints; unavailable still selectable per override); chip × removes. Understaffed days auto-expand. |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
-| Assignments view/edit | Boss reviews draft, adds/removes individual assignments. `GET/POST /weeks/:weekId/assignments`, `DELETE /assignments/:id` |
 | Requirements/shift counts on published weeks | Requirements and Shift Counts buttons disappear (or become inaccessible) once a week is published. Per permission matrix §3,. Needs investigation and fix. |
 | Published schedule | Employees view their assignments once week is published |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |

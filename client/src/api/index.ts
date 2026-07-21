@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, RoleWorking, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -40,6 +40,13 @@ export interface AvailabilityEntryInput {
   day: number;
   slot: Slot;
   available: boolean;
+}
+
+export interface AssignmentInput {
+  userId: number;
+  day: number;
+  slot: Slot;
+  roleWorking: RoleWorking;
 }
 
 export interface UpdateUserInput {
@@ -112,6 +119,15 @@ export const api = {
   },
 
   assignments: {
+    list: (weekId: number) =>
+      request<{ assignments: AssignmentDto[] }>(`/weeks/${weekId}/assignments`),
+    add: (weekId: number, input: AssignmentInput) =>
+      request<{ assignment: AssignmentDto }>(`/weeks/${weekId}/assignments`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: number) =>
+      request<void>(`/assignments/${id}`, { method: "DELETE" }),
     runAssigner: (weekId: number) =>
       request<{ assignments: AssignmentDto[] }>(
         `/weeks/${weekId}/assignments/run-assigner`,
@@ -130,6 +146,8 @@ export const api = {
   },
 
   availability: {
+    getAll: (weekId: number) =>
+      request<{ availability: AvailabilityDto[] }>(`/weeks/${weekId}/availability`),
     getMine: (weekId: number) =>
       request<{ availability: AvailabilityDto[] }>(`/weeks/${weekId}/availability/me`),
     putMine: (weekId: number, entries: AvailabilityEntryInput[]) =>

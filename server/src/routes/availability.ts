@@ -2,11 +2,10 @@ import { Router } from "express";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
+import { SLOTS } from "../../../shared/types";
 import type { AvailabilityDto, Slot } from "../../../shared/types";
 
 const router = Router();
-
-const VALID_SLOTS: Slot[] = ["morning", "mid", "evening"];
 
 function toAvailabilityDto(row: {
   id: number;
@@ -74,10 +73,10 @@ router.put("/weeks/:weekId/availability/me", requireLogin, async (req, res, next
       ) {
         throw new HttpError(400, `entries[${i}].day must be an integer 0–6`, "VALIDATION_ERROR");
       }
-      if (typeof e.slot !== "string" || !VALID_SLOTS.includes(e.slot as Slot)) {
+      if (typeof e.slot !== "string" || !SLOTS.includes(e.slot as Slot)) {
         throw new HttpError(
           400,
-          `entries[${i}].slot must be one of: ${VALID_SLOTS.join(", ")}`,
+          `entries[${i}].slot must be one of: ${SLOTS.join(", ")}`,
           "VALIDATION_ERROR"
         );
       }

@@ -7,8 +7,11 @@ export type WeekStatus =
   | "availability_closed"
   | "draft"
   | "published";
-export type Slot = "morning" | "mid" | "evening";
-export type RoleWorking = "cook" | "barista";
+export const SLOTS = ["morning", "mid", "evening"] as const;
+export type Slot = (typeof SLOTS)[number];
+
+export const ROLES_WORKING = ["cook", "barista"] as const;
+export type RoleWorking = (typeof ROLES_WORKING)[number];
 
 // DTO shapes returned by the API (no passwordHash, dates as ISO strings)
 

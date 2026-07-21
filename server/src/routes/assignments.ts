@@ -3,6 +3,7 @@ import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { runAssigner } from "../services/assigner";
+import { SLOTS, ROLES_WORKING } from "../../../shared/types";
 import type { AssignmentDto, Slot, RoleWorking, WeekStatus } from "../../../shared/types";
 
 const router = Router();
@@ -28,9 +29,25 @@ function toAssignmentDto(row: {
 }
 
 // GET /weeks/:weekId/assignments
-// Employees may only see assignments once published (enforced in implementation)
-router.get("/weeks/:weekId/assignments", requireLogin, async (_req, res) => {
-  res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
+// Boss sees the schedule in any status; employees only once the week is published.
+router.get("/weeks/:weekId/assignments", requireLogin, async (req, res, next) => {
+  try {
+    const weekId = parseInt(req.params.weekId, 10);
+    if (isNaN(weekId)) throw new HttpError(400, "Invalid week id", "VALIDATION_ERROR");
+
+    const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
+    if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    if (req.user!.role !== "boss" && week.status !== "published") {
+      throw new HttpError(403, "Schedule is not published yet", "FORBIDDEN");
+    }
+
+    const rows = await prisma.assignment.findMany({ where: { weekId } });
+
+    res.json({ assignments: rows.map(toAssignmentDto) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // POST /weeks/:weekId/assignments/run-assigner  (boss only)
@@ -130,13 +147,120 @@ router.post(
 );
 
 // POST /weeks/:weekId/assignments  { userId, day, slot, roleWorking }  (boss only)
-router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (_req, res) => {
-  res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
+// Manual override: enforces the hard invariants (role, no duplicate cell, no overstaffing)
+// but lets the boss override availability, weekly shift count, and same-day double-booking.
+router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req, res, next) => {
+  try {
+    const weekId = parseInt(req.params.weekId, 10);
+    if (isNaN(weekId)) throw new HttpError(400, "Invalid week id", "VALIDATION_ERROR");
+
+    const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
+    if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    const status = week.status as WeekStatus;
+    if (status !== "draft" && status !== "published") {
+      throw new HttpError(
+        409,
+        "Assignments can only be edited when the week is draft or published",
+        "INVALID_STATE"
+      );
+    }
+
+    const { userId, day, slot, roleWorking } = req.body as Record<string, unknown>;
+    if (typeof userId !== "number" || !Number.isInteger(userId)) {
+      throw new HttpError(400, "userId must be an integer", "VALIDATION_ERROR");
+    }
+    if (typeof day !== "number" || !Number.isInteger(day) || day < 0 || day > 6) {
+      throw new HttpError(400, "day must be an integer 0–6", "VALIDATION_ERROR");
+    }
+    if (typeof slot !== "string" || !SLOTS.includes(slot as Slot)) {
+      throw new HttpError(400, `slot must be one of: ${SLOTS.join(", ")}`, "VALIDATION_ERROR");
+    }
+    if (typeof roleWorking !== "string" || !ROLES_WORKING.includes(roleWorking as RoleWorking)) {
+      throw new HttpError(
+        400,
+        `roleWorking must be one of: ${ROLES_WORKING.join(", ")}`,
+        "VALIDATION_ERROR"
+      );
+    }
+    const validSlot = slot as Slot;
+    const validRole = roleWorking as RoleWorking;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId, isActive: true, isDeleted: false },
+    });
+    if (!user) throw new HttpError(400, "User not found or inactive", "VALIDATION_ERROR");
+
+    // Hard constraint: user must actually have the role they'd fill.
+    const hasRole = validRole === "cook" ? user.isCook : user.isBarista;
+    if (!hasRole) {
+      throw new HttpError(409, `User cannot work as ${validRole}`, "INVALID_STATE");
+    }
+
+    // Check-then-create atomically so a concurrent add can't exceed the cap.
+    const assignment = await prisma.$transaction(async (tx) => {
+      const duplicate = await tx.assignment.findFirst({
+        where: { weekId, userId, day, slot: validSlot },
+      });
+      if (duplicate) {
+        throw new HttpError(409, "Already assigned to this slot", "INVALID_STATE");
+      }
+
+      const requirement = await tx.shiftRequirement.findUnique({
+        where: { weekId_day_slot: { weekId, day, slot: validSlot } },
+      });
+      const cap = requirement
+        ? validRole === "cook"
+          ? requirement.cooksNeeded
+          : requirement.baristasNeeded
+        : 0;
+      const assigned = await tx.assignment.count({
+        where: { weekId, day, slot: validSlot, roleWorking: validRole },
+      });
+      if (assigned >= cap) {
+        throw new HttpError(409, "Slot is already fully staffed", "INVALID_STATE");
+      }
+
+      return tx.assignment.create({
+        data: { weekId, userId, day, slot: validSlot, roleWorking: validRole },
+      });
+    });
+
+    res.status(201).json({ assignment: toAssignmentDto(assignment) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // DELETE /assignments/:id  (boss only)
-router.delete("/assignments/:id", requireLogin, requireBoss, async (_req, res) => {
-  res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
+router.delete("/assignments/:id", requireLogin, requireBoss, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new HttpError(400, "Invalid assignment id", "VALIDATION_ERROR");
+
+    const assignment = await prisma.assignment.findUnique({ where: { id } });
+    if (!assignment) throw new HttpError(404, "Assignment not found", "NOT_FOUND");
+
+    const week = await prisma.week.findUnique({
+      where: { id: assignment.weekId, isDeleted: false },
+    });
+    if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    const status = week.status as WeekStatus;
+    if (status !== "draft" && status !== "published") {
+      throw new HttpError(
+        409,
+        "Assignments can only be edited when the week is draft or published",
+        "INVALID_STATE"
+      );
+    }
+
+    await prisma.assignment.delete({ where: { id } });
+
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

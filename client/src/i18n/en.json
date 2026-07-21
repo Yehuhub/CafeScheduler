@@ -65,7 +65,9 @@
     },
     "deleteWeek": "Delete Week",
     "deleteWeekWarning": "This hides the week of {{date}} and all its data. Nothing is permanently erased.",
-    "deleteWeekConfirmPassword": "Your password"
+    "deleteWeekConfirmPassword": "Your password",
+    "pendingAvailabilityTitle": "Waiting on availability",
+    "allSubmitted": "Everyone has submitted their availability."
   },
   "employee": {
     "title": "My Schedule",
@@ -88,6 +90,24 @@
     "warning": "This week already has assignments. Changes here may make them inconsistent.",
     "loadError": "Failed to load shift counts",
     "saveError": "Failed to save shift counts"
+  },
+  "review": {
+    "reviewDraft": "Review Draft",
+    "editSchedule": "Edit Schedule",
+    "title": "Review Schedule",
+    "cook": "Cook",
+    "barista": "Barista",
+    "addCook": "Add cook",
+    "addBarista": "Add barista",
+    "available": "available",
+    "notAvailable": "not available",
+    "alreadyWorking": "already on {{day}}",
+    "atShiftLimit": "at weekly limit ({{assigned}}/{{limit}})",
+    "daySummary": "{{assigned}}/{{needed}} filled",
+    "noCandidates": "No eligible staff",
+    "loadError": "Failed to load schedule",
+    "addError": "Failed to add",
+    "empty": "No slots configured for this week."
   },
   "availability": {
     "title": "My Availability",
