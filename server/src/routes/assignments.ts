@@ -3,6 +3,7 @@ import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { runAssigner } from "../services/assigner";
+import { isPastWeek } from "../../../shared/weekDates";
 import { SLOTS, ROLES_WORKING } from "../../../shared/types";
 import type { AssignmentDto, Slot, RoleWorking, WeekStatus } from "../../../shared/types";
 
@@ -175,6 +176,9 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
         "INVALID_STATE"
       );
     }
+    if (isPastWeek(week.startDate)) {
+      throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+    }
 
     const { userId, day, slot, roleWorking } = req.body as Record<string, unknown>;
     if (typeof userId !== "number" || !Number.isInteger(userId)) {
@@ -258,6 +262,10 @@ router.delete("/assignments/:id", requireLogin, requireBoss, async (req, res, ne
       where: { id: assignment.weekId, isDeleted: false },
     });
     if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    if (isPastWeek(week.startDate)) {
+      throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+    }
 
     const status = week.status as WeekStatus;
     if (status !== "draft" && status !== "published") {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
+import { isPastWeek } from "../../../shared/weekDates";
 import { SLOTS } from "../../../shared/types";
 import type { ShiftRequirementDto, Slot } from "../../../shared/types";
 
@@ -50,6 +51,10 @@ router.put("/weeks/:weekId/requirements", requireLogin, requireBoss, async (req,
 
     const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
     if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    if (isPastWeek(week.startDate)) {
+      throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+    }
 
     const { entries } = req.body as Record<string, unknown>;
     if (!Array.isArray(entries)) {

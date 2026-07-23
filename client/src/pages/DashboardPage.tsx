@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
 import ReviewScheduleModal from "../components/ReviewScheduleModal";
 import { api } from "../api";
+import { isPastWeek } from "@shared/weekDates";
 import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot, UserDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -654,6 +655,7 @@ function WeekCard({
   transitioning,
   running,
   healthRefresh,
+  readOnly,
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
@@ -665,6 +667,8 @@ function WeekCard({
   transitioning: boolean;
   running: boolean;
   healthRefresh: number;
+  // Past (fully-elapsed) weeks are frozen: view + export only, no edit affordances.
+  readOnly: boolean;
 }) {
   const { t } = useTranslation();
   const status = week.status;
@@ -693,13 +697,30 @@ function WeekCard({
         </span>
       </button>
 
-      {/* Collapsed cards still surface who the boss is waiting on for open weeks. */}
-      {status === "availability_open" && <PendingAvailability weekId={week.id} />}
-      {(status === "draft" || status === "published") && (
+      {/* Collapsed cards still surface who the boss is waiting on for open weeks.
+          Both badges are live/actionable signals — suppressed on frozen past weeks. */}
+      {!readOnly && status === "availability_open" && (
+        <PendingAvailability weekId={week.id} />
+      )}
+      {!readOnly && (status === "draft" || status === "published") && (
         <ScheduleHealth weekId={week.id} refreshKey={healthRefresh} />
       )}
 
-      {expanded && (
+      {/* Past week: view + export only. */}
+      {expanded && readOnly && status === "published" && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <a
+            href={api.weeks.exportUrl(week.id)}
+            target="_blank"
+            rel="noopener"
+            className="inline-block rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50"
+          >
+            {t("weeks.action.exportSchedule")}
+          </a>
+        </div>
+      )}
+
+      {expanded && !readOnly && (
         <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
           {/* Status-specific actions — stacked so each status can tier its buttons. */}
           <div className="space-y-2">
@@ -845,6 +866,7 @@ export default function DashboardPage() {
   // Bumped after actions that change assignments/requirements so ScheduleHealth re-fetches.
   const [healthRefresh, setHealthRefresh] = useState(0);
   const bumpHealth = () => setHealthRefresh((k) => k + 1);
+  const [showPast, setShowPast] = useState(false);
 
   useEffect(() => {
     api.weeks
@@ -923,6 +945,27 @@ export default function DashboardPage() {
   const isSunday = new Date().getUTCDay() === 0;
   const hasOpenWeek = weeks.some((w) => w.status !== "published");
 
+  // Fully-elapsed weeks are archived: hidden behind a toggle and rendered read-only.
+  const currentWeeks = weeks.filter((w) => !isPastWeek(w.startDate));
+  const pastWeeks = weeks.filter((w) => isPastWeek(w.startDate));
+
+  const renderWeekCard = (week: WeekDto, readOnly: boolean) => (
+    <WeekCard
+      key={week.id}
+      week={week}
+      onTransition={handleTransition}
+      onDelete={setDeleteTarget}
+      onEditRequirements={setRequirementsTarget}
+      onEditShiftCounts={setShiftCountsTarget}
+      onRunAssigner={handleRunAssigner}
+      onReview={setReviewTarget}
+      transitioning={transitioning}
+      running={running}
+      healthRefresh={healthRefresh}
+      readOnly={readOnly}
+    />
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       <BossNav />
@@ -958,21 +1001,24 @@ export default function DashboardPage() {
           <p className="text-center text-sm text-gray-400">{t("weeks.noWeeks")}</p>
         )}
 
-        {weeks.map((week) => (
-          <WeekCard
-            key={week.id}
-            week={week}
-            onTransition={handleTransition}
-            onDelete={setDeleteTarget}
-            onEditRequirements={setRequirementsTarget}
-            onEditShiftCounts={setShiftCountsTarget}
-            onRunAssigner={handleRunAssigner}
-            onReview={setReviewTarget}
-            transitioning={transitioning}
-            running={running}
-            healthRefresh={healthRefresh}
-          />
-        ))}
+        {currentWeeks.map((week) => renderWeekCard(week, false))}
+
+        {pastWeeks.length > 0 && (
+          <div className="space-y-3 pt-1">
+            <button
+              onClick={() => setShowPast((v) => !v)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:bg-gray-100"
+            >
+              <span aria-hidden className={`transition-transform ${showPast ? "rotate-90" : ""}`}>
+                ▸
+              </span>
+              {showPast
+                ? t("weeks.hidePast")
+                : t("weeks.showPast", { count: pastWeeks.length })}
+            </button>
+            {showPast && pastWeeks.map((week) => renderWeekCard(week, true))}
+          </div>
+        )}
       </main>
 
       {confirm && (

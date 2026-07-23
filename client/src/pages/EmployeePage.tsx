@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../api";
 import { SLOTS } from "@shared/types";
+import { isPastWeek, isCurrentWeek } from "@shared/weekDates";
 import type { WeekDto, Slot, AssignmentDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -265,11 +266,8 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
   );
 
   return (
-    <div className="rounded-lg border bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-xs text-gray-500">
-          {t("availability.weekOf", { date: formatDate(week.startDate) })}
-        </p>
+    <div>
+      <div className="mb-3 flex justify-end">
         <div className="inline-flex rounded-md border border-gray-200 p-0.5">
           {tab("mine", t("employee.myShifts"))}
           {tab("all", t("employee.everyone"))}
@@ -374,6 +372,55 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
   );
 }
 
+// Accordion card wrapping one published week's schedule. The current week opens by
+// default; upcoming weeks start collapsed. Past weeks aren't shown to employees.
+function PublishedWeekCard({
+  week,
+  userId,
+  current,
+  defaultExpanded,
+}: {
+  week: WeekDto;
+  userId: number;
+  current: boolean;
+  defaultExpanded: boolean;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <div className="rounded-lg border bg-white p-4 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 text-start"
+      >
+        <span className="flex flex-col">
+          <span className="text-xs font-medium text-indigo-600">
+            {current ? t("employee.thisWeek") : t("employee.upcoming")}
+          </span>
+          <span className="font-medium">
+            {t("availability.weekOf", { date: formatDate(week.startDate) })}
+          </span>
+        </span>
+        <span
+          aria-hidden
+          className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          ▸
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <PublishedSchedule week={week} userId={userId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function EmployeePage() {
@@ -382,7 +429,7 @@ export default function EmployeePage() {
   const navigate = useNavigate();
 
   const [openWeek, setOpenWeek] = useState<WeekDto | null | undefined>(undefined); // undefined = loading
-  const [publishedWeek, setPublishedWeek] = useState<WeekDto | null>(null);
+  const [publishedWeeks, setPublishedWeeks] = useState<WeekDto[]>([]);
   const [weekError, setWeekError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -397,13 +444,12 @@ export default function EmployeePage() {
             : open.reduce((earliest, w) => (w.startDate < earliest.startDate ? w : earliest))
         );
 
-        // Show the most recent published week's schedule.
-        const published = weeks.filter((w) => w.status === "published");
-        setPublishedWeek(
-          published.length === 0
-            ? null
-            : published.reduce((latest, w) => (w.startDate > latest.startDate ? w : latest))
-        );
+        // Show the current + upcoming published weeks (fully-past ones are hidden from
+        // employees). Ascending by date so the current week sorts first.
+        const published = weeks
+          .filter((w) => w.status === "published" && !isPastWeek(w.startDate))
+          .sort((a, b) => a.startDate.localeCompare(b.startDate));
+        setPublishedWeeks(published);
       })
       .catch(() => setWeekError(t("weeks.loadError")));
   }, [t]);
@@ -415,6 +461,10 @@ export default function EmployeePage() {
     user.isCook && t("users.isCook"),
     user.isBarista && t("users.isBarista"),
   ].filter(Boolean);
+
+  // Open the current week by default; if none is current (only upcoming), open the earliest.
+  const openByDefaultId =
+    publishedWeeks.find((w) => isCurrentWeek(w.startDate))?.id ?? publishedWeeks[0]?.id;
 
   const handleLogout = async () => {
     await logout();
@@ -438,8 +488,16 @@ export default function EmployeePage() {
       <main className="mx-auto max-w-md space-y-4 p-4">
         {weekError && <p className="text-sm text-red-600">{weekError}</p>}
 
-        {/* Published schedule — the employee's own shifts */}
-        {publishedWeek && <PublishedSchedule week={publishedWeek} userId={user.id} />}
+        {/* Published schedules — current week + any upcoming, current expanded */}
+        {publishedWeeks.map((w) => (
+          <PublishedWeekCard
+            key={w.id}
+            week={w}
+            userId={user.id}
+            current={isCurrentWeek(w.startDate)}
+            defaultExpanded={w.id === openByDefaultId}
+          />
+        ))}
 
         {/* Availability form */}
 

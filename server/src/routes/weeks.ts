@@ -6,6 +6,7 @@ import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { isValidTransition, wipesAssignments } from "../services/weekState";
+import { isPastWeek } from "../../../shared/weekDates";
 import { buildScheduleView, exporters } from "../services/scheduleExport";
 import type { ExportFormat } from "../services/scheduleExport";
 import type { WeekDto, WeekStatus, Slot, RoleWorking } from "../../../shared/types";
@@ -205,6 +206,10 @@ router.patch("/:id/status", requireLogin, requireBoss, async (req, res, next) =>
     const currentWeek = await prisma.week.findUnique({ where: { id, isDeleted: false } });
     if (!currentWeek) throw new HttpError(404, "Week not found", "NOT_FOUND");
 
+    if (isPastWeek(currentWeek.startDate)) {
+      throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+    }
+
     const from = currentWeek.status as WeekStatus;
     if (!isValidTransition(from, to)) {
       throw new HttpError(
@@ -252,6 +257,10 @@ router.delete("/:id", requireLogin, requireBoss, async (req, res, next) => {
 
     const week = await prisma.week.findUnique({ where: { id, isDeleted: false } });
     if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+    if (isPastWeek(week.startDate)) {
+      throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+    }
 
     await prisma.week.update({ where: { id }, data: { isDeleted: true } });
 

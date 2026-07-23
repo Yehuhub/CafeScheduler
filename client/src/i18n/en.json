@@ -67,6 +67,9 @@
       "publish": "Publish",
       "exportSchedule": "Print / Export"
     },
+    "showPast_one": "Show {{count}} past week",
+    "showPast_other": "Show {{count}} past weeks",
+    "hidePast": "Hide past weeks",
     "deleteWeek": "Delete Week",
     "deleteWeekWarning": "This hides the week of {{date}} and all its data. Nothing is permanently erased.",
     "deleteWeekConfirmPassword": "Your password",
@@ -84,6 +87,8 @@
     "roles": "Roles",
     "myShifts": "My Shifts",
     "everyone": "Everyone",
+    "thisWeek": "This week",
+    "upcoming": "Upcoming",
     "noShifts": "You have no shifts scheduled this week.",
     "emptySchedule": "No shifts scheduled this week."
   },

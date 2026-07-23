@@ -2,6 +2,7 @@ import { Router } from "express";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
+import { isPastWeek } from "../../../shared/weekDates";
 import type { WeeklyShiftCountDto } from "../../../shared/types";
 
 const router = Router();
@@ -65,6 +66,10 @@ router.patch(
 
       const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
       if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+      if (isPastWeek(week.startDate)) {
+        throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
+      }
 
       const user = await prisma.user.findUnique({ where: { id: userId, isDeleted: false } });
       if (!user) throw new HttpError(404, "User not found", "NOT_FOUND");
