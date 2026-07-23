@@ -34,6 +34,7 @@ export default function ReviewScheduleModal({
   const [assignments, setAssignments] = useState<AssignmentDto[]>([]);
   const [requirements, setRequirements] = useState<ShiftRequirementDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
+  const [bosses, setBosses] = useState<UserDto[]>([]);
   const [shiftLimits, setShiftLimits] = useState<Map<number, number>>(new Map());
   const [availableSet, setAvailableSet] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -54,9 +55,11 @@ export default function ReviewScheduleModal({
     ])
       .then(([{ assignments }, { requirements }, { users: allUsers }, { availability }, { shiftCounts }]) => {
         const employees = allUsers.filter((u) => u.isActive && u.role === "employee");
+        const bossUsers = allUsers.filter((u) => u.isActive && u.role === "boss");
         setAssignments(assignments);
         setRequirements(requirements);
         setUsers(employees);
+        setBosses(bossUsers);
         setAvailableSet(
           new Set(availability.filter((a) => a.available).map((a) => availKey(a.userId, a.day, a.slot)))
         );
@@ -90,9 +93,9 @@ export default function ReviewScheduleModal({
 
   const usersById = useMemo(() => {
     const m = new Map<number, UserDto>();
-    for (const u of users) m.set(u.id, u);
+    for (const u of [...users, ...bosses]) m.set(u.id, u);
     return m;
-  }, [users]);
+  }, [users, bosses]);
 
   // Which (day, slot) cells to render: any with a requirement or an existing assignment.
   const slotsByDay = useMemo(() => {
@@ -298,6 +301,7 @@ export default function ReviewScheduleModal({
         <AddPersonSheet
           picker={picker}
           users={users}
+          bosses={bosses}
           assignments={assignments}
           availableSet={availableSet}
           shiftLimits={shiftLimits}
@@ -315,6 +319,7 @@ export default function ReviewScheduleModal({
 function AddPersonSheet({
   picker,
   users,
+  bosses,
   assignments,
   availableSet,
   shiftLimits,
@@ -324,6 +329,7 @@ function AddPersonSheet({
 }: {
   picker: Picker;
   users: UserDto[];
+  bosses: UserDto[];
   assignments: AssignmentDto[];
   availableSet: Set<string>;
   shiftLimits: Map<number, number>;
@@ -337,6 +343,12 @@ function AddPersonSheet({
   const inCell = new Set(
     assignments.filter((a) => a.day === day && a.slot === slot).map((a) => a.userId)
   );
+
+  // Bosses are always offerable (they can fill any role) — a last-resort tier when
+  // no employee fits. Only excluded if already in this exact cell.
+  const bossCandidates = bosses
+    .filter((b) => !inCell.has(b.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const candidates = users
     .filter((u) => (role === "cook" ? u.isCook : u.isBarista) && !inCell.has(u.id))
@@ -379,7 +391,7 @@ function AddPersonSheet({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          {candidates.length === 0 && (
+          {candidates.length === 0 && bossCandidates.length === 0 && (
             <p className="px-2 py-4 text-center text-sm text-gray-400">{t("review.noCandidates")}</p>
           )}
           {candidates.map(({ user, available, elsewhere, assignedThisWeek, limit, atLimit, unsafe }) => {
@@ -423,6 +435,28 @@ function AddPersonSheet({
               </button>
             );
           })}
+
+          {bossCandidates.length > 0 && (
+            <>
+              <p className="mt-2 border-t border-gray-200 px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                {t("review.bosses")}
+              </p>
+              {bossCandidates.map((boss) => (
+                <button
+                  key={boss.id}
+                  type="button"
+                  onClick={() => onPick(boss.id)}
+                  disabled={busy}
+                  className="flex w-full items-center justify-between gap-2 rounded px-3 py-2 text-start hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="text-sm font-medium text-gray-900">{boss.name}</span>
+                  <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                    {t("users.boss")}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>

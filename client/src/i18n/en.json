@@ -112,6 +112,7 @@
     "atShiftLimit": "at weekly limit ({{assigned}}/{{limit}})",
     "daySummary": "{{assigned}}/{{needed}} filled",
     "noCandidates": "No eligible staff",
+    "bosses": "Bosses · can fill any role",
     "loadError": "Failed to load schedule",
     "addError": "Failed to add",
     "empty": "No slots configured for this week."

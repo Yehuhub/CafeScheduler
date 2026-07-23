@@ -202,7 +202,10 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
     if (!user) throw new HttpError(400, "User not found or inactive", "VALIDATION_ERROR");
 
     // Hard constraint: user must actually have the role they'd fill.
-    const hasRole = validRole === "cook" ? user.isCook : user.isBarista;
+    // Exception: a boss can fill any role as an emergency stand-in (they may carry
+    // neither the cook nor barista flag), so the manual-add UI always offers them.
+    const hasRole =
+      user.role === "boss" || (validRole === "cook" ? user.isCook : user.isBarista);
     if (!hasRole) {
       throw new HttpError(409, `User cannot work as ${validRole}`, "INVALID_STATE");
     }
