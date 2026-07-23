@@ -49,6 +49,9 @@
     "confirmWipeTitle": "Reopen Availability?",
     "confirmWipeBody": "This will delete all draft assignments for this week. You'll need to run the assigner again afterwards.",
     "confirmWipeAction": "Yes, Reopen",
+    "confirmCloseTitle": "Close Availability?",
+    "confirmCloseBody": "Employees will no longer be able to edit their availability for this week. You can reopen it later if needed.",
+    "confirmCloseAction": "Yes, Close Availability",
     "status": {
       "availability_open": "Open",
       "availability_closed": "Closed",

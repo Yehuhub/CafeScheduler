@@ -501,6 +501,7 @@ function UserCard({
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
   const roles = [
     user.isCook && t("users.isCook"),
     user.isBarista && t("users.isBarista"),
@@ -512,10 +513,16 @@ function UserCard({
         !user.isActive ? "opacity-60" : ""
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      {/* Whole header toggles the card; details always show, actions hide until open. */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-start justify-between gap-2 text-start"
+      >
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-medium">{user.name}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{user.name}</span>
             <RoleBadge role={user.role} />
             {!user.isActive && (
               <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-600">
@@ -529,29 +536,40 @@ function UserCard({
             {t("users.shiftsPerWeek", { count: user.defaultShiftsPerWeek })}
           </p>
         </div>
-        <div className="flex shrink-0 gap-1">
+        <span
+          aria-hidden
+          className={`mt-0.5 shrink-0 text-gray-400 transition-transform ${
+            expanded ? "rotate-90" : ""
+          }`}
+        >
+          ▸
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
           <button
             onClick={onEdit}
-            className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+            className="rounded border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           >
             {t("common.edit")}
           </button>
           <button
             onClick={onResetPassword}
-            className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+            className="rounded border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           >
             {t("users.password")}
           </button>
           {user.id !== currentUserId && (
             <button
               onClick={onDelete}
-              className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+              className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
             >
               {t("users.deleteUser")}
             </button>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

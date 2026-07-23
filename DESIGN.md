@@ -161,12 +161,17 @@ Each Week has a `status` that progresses through this lifecycle:
 |---|---|---|---|---|
 | Employee edits own availability | ✓ | ✗ | ✗ | ✗ |
 | Boss edits requirements | ✓ | ✓ | ✓ ⚠ | ✓ ⚠ |
-| Boss edits weekly shift counts | ✓ | ✓ | ✓ ⚠ | ✓ ⚠ |
+| Boss edits weekly shift counts | ✓ | ✓ | ✓ ⚠ | ✗ (hidden) |
 | Boss runs assigner | ✗ | ✓ | ✓ (wipes existing) | ✗ |
 | Boss manually edits assignments | ✗ | ✗ | ✓ | ✓ |
 | Employee views schedule | ✗ | ✗ | ✗ | ✓ |
 
 ⚠ = allowed but UI shows a warning that current assignments may be inconsistent.
+
+Weekly shift counts only feed the assigner, which can't run on a `published` week, so
+editing them post-publish has no effect — the Shift Counts button is hidden once
+published. Requirements stay editable there because they still cap manual assignment
+adds (overstaffing is a hard cap even post-publish).
 
 ### Backward transitions
 
@@ -487,6 +492,5 @@ Use this to orient at the start of each session.
 
 | Area | Notes |
 |---|---|
-| Requirements/shift counts on published weeks | Requirements and Shift Counts buttons disappear (or become inaccessible) once a week is published. Per permission matrix §3,. Needs investigation and fix. |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
 | True PDF binary | `GET /weeks/:weekId/export.pdf` — server-side binary (puppeteer or a PDF lib). Stubbed (501); reserved seam exists in `scheduleExport.ts`. Only if HTML print proves insufficient. |

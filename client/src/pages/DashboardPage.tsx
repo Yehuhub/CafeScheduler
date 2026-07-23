@@ -51,28 +51,40 @@ function StatusBadge({ status }: { status: WeekStatus }) {
 
 // ── Confirm modal ─────────────────────────────────────────────────────────────
 
-type ConfirmState = { weekId: number; to: WeekStatus } | null;
+// "wipe" = draft → open (destructive, amber); "close" = open → closed (primary).
+type ConfirmKind = "wipe" | "close";
+type ConfirmState = { weekId: number; to: WeekStatus; kind: ConfirmKind } | null;
 
 function ConfirmModal({
+  title,
+  body,
+  confirmLabel,
+  tone,
   onConfirm,
   onCancel,
   loading,
 }: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  tone: "warning" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const { t } = useTranslation();
+  const confirmClass =
+    tone === "warning"
+      ? "bg-amber-600 hover:bg-amber-700"
+      : "bg-indigo-600 hover:bg-indigo-700";
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
-        <h2 className="mb-2 text-base font-semibold">
-          {t("weeks.confirmWipeTitle")}
-        </h2>
-        <p className="mb-6 text-sm text-gray-600">{t("weeks.confirmWipeBody")}</p>
+        <h2 className="mb-2 text-base font-semibold">{title}</h2>
+        <p className="mb-6 text-sm text-gray-600">{body}</p>
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
@@ -83,9 +95,9 @@ function ConfirmModal({
           <button
             onClick={onConfirm}
             disabled={loading}
-            className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className={`rounded px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${confirmClass}`}
           >
-            {loading ? "…" : t("weeks.confirmWipeAction")}
+            {loading ? "…" : confirmLabel}
           </button>
         </div>
       </div>
@@ -585,120 +597,155 @@ function WeekCard({
 }) {
   const { t } = useTranslation();
   const status = week.status;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="rounded-lg border bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
+      {/* Whole header toggles the card; collapsed shows just date + status. */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 text-start"
+      >
         <span className="font-medium">
           {t("weeks.weekOf", { date: formatDate(week.startDate) })}
         </span>
-        <div className="flex items-center gap-2">
+        <span className="flex items-center gap-2">
           <StatusBadge status={status} />
-          <button
-            onClick={() => onEditRequirements(week)}
-            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+          <span
+            aria-hidden
+            className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
           >
-            {t("requirements.editRequirements")}
-          </button>
-          <button
-            onClick={() => onEditShiftCounts(week)}
-            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
-          >
-            {t("shiftCounts.editShiftCounts")}
-          </button>
-          <button
-            onClick={() => onDelete(week)}
-            className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-600 hover:border-red-300 hover:bg-red-100"
-          >
-            {t("weeks.deleteWeek")}
-          </button>
-        </div>
-      </div>
+            ▸
+          </span>
+        </span>
+      </button>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {status === "availability_open" && (
-            <button
-              onClick={() => onTransition(week.id, status, "availability_closed")}
-              disabled={transitioning}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {t("weeks.action.closeAvailability")}
-            </button>
-          )}
-
-          {status === "availability_closed" && (
-            <>
-              <button
-                onClick={() => onTransition(week.id, status, "availability_open")}
-                disabled={transitioning || running}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {t("weeks.action.reopenAvailability")}
-              </button>
-              <button
-                onClick={() => onRunAssigner(week.id)}
-                disabled={transitioning || running}
-                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {running ? "…" : t("weeks.action.runAssigner")}
-              </button>
-            </>
-          )}
-
-          {status === "draft" && (
-            <>
-              <button
-                onClick={() => onTransition(week.id, status, "availability_open")}
-                disabled={transitioning || running}
-                className="rounded border border-amber-300 px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-              >
-                {t("weeks.action.reopenAvailability")} ⚠
-              </button>
-              <button
-                onClick={() => onRunAssigner(week.id)}
-                disabled={transitioning || running}
-                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-              >
-                {running ? "…" : t("weeks.action.rerunAssigner")}
-              </button>
-              <button
-                onClick={() => onReview(week)}
-                disabled={transitioning || running}
-                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-              >
-                {t("review.reviewDraft")}
-              </button>
-              <button
-                onClick={() => onTransition(week.id, status, "published")}
-                disabled={transitioning || running}
-                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {t("weeks.action.publish")}
-              </button>
-            </>
-          )}
-
-          {status === "published" && (
-            <>
-              <button
-                onClick={() => onReview(week)}
-                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-              >
-                {t("review.editSchedule")}
-              </button>
-              <a
-                href={api.weeks.exportUrl(week.id)}
-                target="_blank"
-                rel="noopener"
-                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50"
-              >
-                {t("weeks.action.exportSchedule")}
-              </a>
-            </>
-          )}
-        </div>
-
+      {/* Collapsed cards still surface who the boss is waiting on for open weeks. */}
       {status === "availability_open" && <PendingAvailability weekId={week.id} />}
+
+      {expanded && (
+        <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
+          {/* Status-specific actions — stacked so each status can tier its buttons. */}
+          <div className="space-y-2">
+            {status === "availability_open" && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => onTransition(week.id, status, "availability_closed")}
+                  disabled={transitioning}
+                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {t("weeks.action.closeAvailability")}
+                </button>
+              </div>
+            )}
+
+            {status === "availability_closed" && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => onRunAssigner(week.id)}
+                  disabled={transitioning || running}
+                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {running ? "…" : t("weeks.action.runAssigner")}
+                </button>
+                <button
+                  onClick={() => onTransition(week.id, status, "availability_open")}
+                  disabled={transitioning || running}
+                  className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {t("weeks.action.reopenAvailability")}
+                </button>
+              </div>
+            )}
+
+            {status === "draft" && (
+              <>
+                {/* Primary: the two most likely next steps — big and prominent. */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onTransition(week.id, status, "published")}
+                    disabled={transitioning || running}
+                    className="flex-1 rounded bg-green-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-600 disabled:opacity-50"
+                  >
+                    {t("weeks.action.publish")}
+                  </button>
+                  <button
+                    onClick={() => onReview(week)}
+                    disabled={transitioning || running}
+                    className="flex-1 rounded bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {t("review.reviewDraft")}
+                  </button>
+                </div>
+                {/* Secondary: less-common escape hatches — smaller. */}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => onTransition(week.id, status, "availability_open")}
+                    disabled={transitioning || running}
+                    className="rounded border border-amber-300 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                  >
+                    {t("weeks.action.reopenAvailability")} ⚠
+                  </button>
+                  <button
+                    onClick={() => onRunAssigner(week.id)}
+                    disabled={transitioning || running}
+                    className="rounded border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                  >
+                    {running ? "…" : t("weeks.action.rerunAssigner")}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {status === "published" && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => onReview(week)}
+                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  {t("review.editSchedule")}
+                </button>
+                <a
+                  href={api.weeks.exportUrl(week.id)}
+                  target="_blank"
+                  rel="noopener"
+                  className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50"
+                >
+                  {t("weeks.action.exportSchedule")}
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* Configuration — always behind the accordion to keep collapsed cards tidy. */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => onEditRequirements(week)}
+              className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+            >
+              {t("requirements.editRequirements")}
+            </button>
+            {/* Shift counts only feed the assigner, which can't run once published —
+                so editing them post-publish does nothing. Hide the button then. */}
+            {status !== "published" && (
+              <button
+                onClick={() => onEditShiftCounts(week)}
+                className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+              >
+                {t("shiftCounts.editShiftCounts")}
+              </button>
+            )}
+            <button
+              onClick={() => onDelete(week)}
+              className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 hover:border-red-300 hover:bg-red-100"
+            >
+              {t("weeks.deleteWeek")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -759,7 +806,11 @@ export default function DashboardPage() {
 
   const handleTransition = (weekId: number, from: WeekStatus, to: WeekStatus) => {
     if (wipesAssignments(from, to)) {
-      setConfirm({ weekId, to });
+      setConfirm({ weekId, to, kind: "wipe" });
+      return;
+    }
+    if (from === "availability_open" && to === "availability_closed") {
+      setConfirm({ weekId, to, kind: "close" });
       return;
     }
     void doTransition(weekId, to);
@@ -837,6 +888,22 @@ export default function DashboardPage() {
 
       {confirm && (
         <ConfirmModal
+          title={t(
+            confirm.kind === "wipe"
+              ? "weeks.confirmWipeTitle"
+              : "weeks.confirmCloseTitle",
+          )}
+          body={t(
+            confirm.kind === "wipe"
+              ? "weeks.confirmWipeBody"
+              : "weeks.confirmCloseBody",
+          )}
+          confirmLabel={t(
+            confirm.kind === "wipe"
+              ? "weeks.confirmWipeAction"
+              : "weeks.confirmCloseAction",
+          )}
+          tone={confirm.kind === "wipe" ? "warning" : "primary"}
           onConfirm={() => void doTransition(confirm.weekId, confirm.to)}
           onCancel={() => setConfirm(null)}
           loading={transitioning}
