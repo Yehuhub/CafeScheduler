@@ -349,10 +349,18 @@ GET    /weeks/:weekId/dashboard  →  {
 }
 ```
 
-### Export
+### Export 🔒
 ```
-GET    /weeks/:weekId/export.pdf       → PDF binary
+GET    /weeks/:weekId/export.html      → styled HTML print page (browser print-to-PDF)
+GET    /weeks/:weekId/export.pdf       → reserved for a future server-side PDF binary (501)
 ```
+
+Boss-only and published-only for now. `export.html` renders the schedule grid as a
+standalone, print-optimized page (Ctrl/⌘-P → Save as PDF); it scrolls horizontally on
+narrow screens but collapses to a single landscape page when printed. Both routes share
+one format-parameterized handler backed by a `format → exporter` registry
+(`server/src/services/scheduleExport.ts`); adding the true PDF binary is one exporter
+plus swapping the `export.pdf` stub for `makeExportHandler("pdf")`.
 
 ### Response conventions
 
@@ -473,6 +481,7 @@ Use this to orient at the start of each session.
 | Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working + at-weekly-limit hints as pills; flagged candidates get an amber "unsafe" row but stay selectable per override; safe candidates sort first). Chip × removes. Understaffed days auto-expand. |
 | Published schedule — employee view | Employee home (`/`) shows a read-only schedule card for the most recent `published` week, with a **My Shifts / Everyone** toggle. *My Shifts*: the employee's own shifts as a list. *Everyone*: a grid (days as columns, slots as rows, sticky slot column, horizontal scroll) with per-cell name chips color-coded by role (barista indigo, cook teal), own name highlighted. `GET /weeks/:weekId/assignments` also returns `assignees: [{id, name}]` so employees can render names without the boss-only user list. |
 | Availability tracking — dashboard | Each `availability_open` week card lists active employees who haven't submitted availability yet ("Waiting on availability" amber pills), or "Everyone has submitted" when complete — so the boss knows who to nudge. "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users`. |
+| PDF export (HTML print) | `GET /weeks/:weekId/export.html` — boss-only, published-only. Pure `server/src/services/scheduleExport.ts` (`buildScheduleView` + `renderScheduleHtml`, 8 Vitest tests) shapes assignments into a days×slots grid and renders a standalone print-optimized page (role-colored name chips, landscape `@page`, print-color-adjust). Scrolls horizontally on phones, collapses to one page on print. Format→exporter registry; `export.pdf` stays a 501 stub reserved for a future binary. Boss dashboard shows a "Print / Export" link on published week cards (`api.weeks.exportUrl`, opens in a new tab). |
 
 ### ❌ Not yet built
 
@@ -480,4 +489,4 @@ Use this to orient at the start of each session.
 |---|---|
 | Requirements/shift counts on published weeks | Requirements and Shift Counts buttons disappear (or become inaccessible) once a week is published. Per permission matrix §3,. Needs investigation and fix. |
 | Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
-| PDF export | `GET /weeks/:weekId/export.pdf`. Stubbed. |
+| True PDF binary | `GET /weeks/:weekId/export.pdf` — server-side binary (puppeteer or a PDF lib). Stubbed (501); reserved seam exists in `scheduleExport.ts`. Only if HTML print proves insufficient. |

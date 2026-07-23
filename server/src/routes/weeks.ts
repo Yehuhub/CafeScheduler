@@ -1,11 +1,14 @@
 import { Router } from "express";
+import type { RequestHandler } from "express";
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { isValidTransition, wipesAssignments } from "../services/weekState";
-import type { WeekDto, WeekStatus } from "../../../shared/types";
+import { buildScheduleView, exporters } from "../services/scheduleExport";
+import type { ExportFormat } from "../services/scheduleExport";
+import type { WeekDto, WeekStatus, Slot, RoleWorking } from "../../../shared/types";
 
 const router = Router();
 
@@ -263,7 +266,64 @@ router.get("/:weekId/dashboard", requireLogin, requireBoss, async (_req, res) =>
   res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
 });
 
-// GET /weeks/:weekId/export.pdf — stubbed
+// GET /weeks/:weekId/export.html | export.pdf  (boss only, published weeks only)
+// Serves a styled HTML print page (DESIGN.md §6). The handler is format-parameterized
+// so `export.pdf` can be swapped from the stub below to makeExportHandler("pdf") once a
+// binary exporter is registered.
+function makeExportHandler(format: ExportFormat): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const weekId = parseInt(req.params.weekId, 10);
+      if (isNaN(weekId)) throw new HttpError(400, "Invalid week id", "VALIDATION_ERROR");
+
+      const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
+      if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
+
+      // Published-only for now (matches the future employee behavior).
+      if (week.status !== "published") {
+        throw new HttpError(409, "Week is not published", "INVALID_STATE");
+      }
+
+      const exporter = exporters[format];
+      if (!exporter) {
+        throw new HttpError(
+          501,
+          `Export format '${format}' is not implemented`,
+          "NOT_IMPLEMENTED"
+        );
+      }
+
+      const rows = await prisma.assignment.findMany({ where: { weekId } });
+      // Include soft-deleted users — historical shifts keep their name.
+      const assigneeIds = [...new Set(rows.map((r) => r.userId))];
+      const assignees = assigneeIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: assigneeIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+
+      const view = buildScheduleView({
+        weekStartDate: week.startDate.toISOString(),
+        assignments: rows.map((r) => ({
+          userId: r.userId,
+          day: r.day,
+          slot: r.slot as Slot,
+          roleWorking: r.roleWorking as RoleWorking,
+        })),
+        names: new Map(assignees.map((a) => [a.id, a.name])),
+      });
+
+      res.type(exporter.contentType).send(exporter.render(view));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+router.get("/:weekId/export.html", requireLogin, requireBoss, makeExportHandler("html"));
+
+// GET /weeks/:weekId/export.pdf — stubbed (reserved for a future server-side PDF binary)
 router.get("/:weekId/export.pdf", requireLogin, async (_req, res) => {
   res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
 });

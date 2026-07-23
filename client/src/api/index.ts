@@ -106,6 +106,10 @@ export const api = {
         method: "DELETE",
         body: JSON.stringify({ password }),
       }),
+    // Direct browser navigation (opened in a new tab) — sends the session cookie.
+    // Not a fetch; returns the URL so components don't hand-build it.
+    exportUrl: (id: number, format: "html" | "pdf" = "html") =>
+      `${BASE}/weeks/${id}/export.${format}`,
   },
 
   requirements: {

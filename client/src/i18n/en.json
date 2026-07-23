@@ -61,7 +61,8 @@
       "runAssigner": "Run Assigner",
       "rerunAssigner": "Re-run Assigner",
       "runAssignerSoon": "Coming soon",
-      "publish": "Publish"
+      "publish": "Publish",
+      "exportSchedule": "Print / Export"
     },
     "deleteWeek": "Delete Week",
     "deleteWeekWarning": "This hides the week of {{date}} and all its data. Nothing is permanently erased.",

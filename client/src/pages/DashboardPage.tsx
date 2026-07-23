@@ -679,12 +679,22 @@ function WeekCard({
           )}
 
           {status === "published" && (
-            <button
-              onClick={() => onReview(week)}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              {t("review.editSchedule")}
-            </button>
+            <>
+              <button
+                onClick={() => onReview(week)}
+                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                {t("review.editSchedule")}
+              </button>
+              <a
+                href={api.weeks.exportUrl(week.id)}
+                target="_blank"
+                rel="noopener"
+                className="rounded border border-indigo-300 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50"
+              >
+                {t("weeks.action.exportSchedule")}
+              </a>
+            </>
           )}
         </div>
 
