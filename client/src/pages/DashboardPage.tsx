@@ -351,34 +351,50 @@ function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => vo
                     </>
                   ))}
 
-                  {/* Mid section */}
+                  {/* Mid section — a per-day toggle in the header row, then Cooks/Baristas
+                      rows matching the Morning/Evening layout (labels on the left). */}
                   <tr>
                     <td className="sticky left-0 z-10 bg-white border-t border-gray-200 pt-3 pb-1 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
                       {t("slots.mid")}
                     </td>
-                    {DAYS.map((day) => <td key={day} className="border-t border-gray-200" />)}
+                    {DAYS.map((day) => {
+                      const hasMid = cellKey(day, "mid") in cells;
+                      return (
+                        <td key={day} className="border-t border-gray-200 pt-3 pb-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={hasMid}
+                            onChange={(e) => toggleMid(day, e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-300 accent-indigo-600"
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                   <tr>
-                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.midToggle")}</td>
+                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.cooks")}</td>
                     {DAYS.map((day) => {
                       const midKey = cellKey(day, "mid");
                       const hasMid = midKey in cells;
                       return (
-                        <td key={day} className="py-1 ps-2 border-s border-gray-100 align-top">
-                          <div className="flex flex-col items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={hasMid}
-                              onChange={(e) => toggleMid(day, e.target.checked)}
-                              className="h-4 w-4 rounded border-gray-300 accent-indigo-600"
-                            />
-                            {hasMid && (
-                              <>
-                                <Stepper value={cells[midKey].cooksNeeded} onChange={(v) => updateCount(midKey, "cooksNeeded", v)} />
-                                <Stepper value={cells[midKey].baristasNeeded} onChange={(v) => updateCount(midKey, "baristasNeeded", v)} />
-                              </>
-                            )}
-                          </div>
+                        <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                          {hasMid && (
+                            <Stepper value={cells[midKey].cooksNeeded} onChange={(v) => updateCount(midKey, "cooksNeeded", v)} />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.baristas")}</td>
+                    {DAYS.map((day) => {
+                      const midKey = cellKey(day, "mid");
+                      const hasMid = midKey in cells;
+                      return (
+                        <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                          {hasMid && (
+                            <Stepper value={cells[midKey].baristasNeeded} onChange={(v) => updateCount(midKey, "baristasNeeded", v)} />
+                          )}
                         </td>
                       );
                     })}

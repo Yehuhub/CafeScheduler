@@ -7,7 +7,7 @@
     "invalidCredentials": "Invalid username or password"
   },
   "users": {
-    "title": "Manage Users",
+    "title": "Manage Staff",
     "newUser": "New User",
     "createUser": "Create User",
     "editUser": "Edit User",
@@ -37,7 +37,7 @@
   },
   "nav": {
     "schedule": "Schedule",
-    "users": "Users"
+    "users": "Staff"
   },
   "weeks": {
     "title": "Schedule",
@@ -87,7 +87,6 @@
     "editRequirements": "Requirements",
     "cooks": "Cooks",
     "baristas": "Baristas",
-    "midToggle": "Mid",
     "warning": "This week already has assignments. Changes here may make them inconsistent.",
     "loadError": "Failed to load requirements"
   },
