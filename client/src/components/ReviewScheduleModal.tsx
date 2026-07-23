@@ -35,6 +35,7 @@ export default function ReviewScheduleModal({
   const [requirements, setRequirements] = useState<ShiftRequirementDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
   const [bosses, setBosses] = useState<UserDto[]>([]);
+  const [names, setNames] = useState<Map<number, string>>(new Map());
   const [shiftLimits, setShiftLimits] = useState<Map<number, number>>(new Map());
   const [availableSet, setAvailableSet] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -53,13 +54,21 @@ export default function ReviewScheduleModal({
       api.availability.getAll(week.id),
       api.shiftCounts.get(week.id),
     ])
-      .then(([{ assignments }, { requirements }, { users: allUsers }, { availability }, { shiftCounts }]) => {
+      .then(([{ assignments, assignees }, { requirements }, { users: allUsers }, { availability }, { shiftCounts }]) => {
         const employees = allUsers.filter((u) => u.isActive && u.role === "employee");
         const bossUsers = allUsers.filter((u) => u.isActive && u.role === "boss");
         setAssignments(assignments);
         setRequirements(requirements);
         setUsers(employees);
         setBosses(bossUsers);
+
+        // Name lookup for the assigned chips. `assignees` is authoritative — it includes
+        // deactivated / soft-deleted users still on this schedule. Merge the active roster
+        // on top so anyone added during this session also resolves.
+        const nameMap = new Map<number, string>();
+        for (const a of assignees) nameMap.set(a.id, a.name);
+        for (const u of [...employees, ...bossUsers]) nameMap.set(u.id, u.name);
+        setNames(nameMap);
         setAvailableSet(
           new Set(availability.filter((a) => a.available).map((a) => availKey(a.userId, a.day, a.slot)))
         );
@@ -90,12 +99,6 @@ export default function ReviewScheduleModal({
     for (const r of requirements) m.set(cellKey(r.day, r.slot), r);
     return m;
   }, [requirements]);
-
-  const usersById = useMemo(() => {
-    const m = new Map<number, UserDto>();
-    for (const u of [...users, ...bosses]) m.set(u.id, u);
-    return m;
-  }, [users, bosses]);
 
   // Which (day, slot) cells to render: any with a requirement or an existing assignment.
   const slotsByDay = useMemo(() => {
@@ -188,12 +191,12 @@ export default function ReviewScheduleModal({
               key={a.id}
               className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700"
             >
-              {usersById.get(a.userId)?.name ?? `#${a.userId}`}
+              {names.get(a.userId) ?? `#${a.userId}`}
               <button
                 type="button"
                 onClick={() => void handleRemove(a.id)}
                 disabled={busy}
-                aria-label={usersById.get(a.userId)?.name}
+                aria-label={names.get(a.userId)}
                 className="text-indigo-400 hover:text-indigo-700 disabled:opacity-50"
               >
                 ✕
