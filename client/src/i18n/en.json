@@ -71,7 +71,12 @@
     "deleteWeekWarning": "This hides the week of {{date}} and all its data. Nothing is permanently erased.",
     "deleteWeekConfirmPassword": "Your password",
     "pendingAvailabilityTitle": "Waiting on availability",
-    "allSubmitted": "Everyone has submitted their availability."
+    "allSubmitted": "Everyone has submitted their availability.",
+    "health": {
+      "fullyStaffed": "Fully staffed",
+      "openSpots_one": "{{count}} open spot",
+      "openSpots_other": "{{count}} open spots"
+    }
   },
   "employee": {
     "title": "My Schedule",

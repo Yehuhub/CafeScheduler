@@ -345,14 +345,11 @@ POST   /weeks/:weekId/assignments    🔒  { userId, day, slot, roleWorking }
 DELETE /assignments/:id   🔒                                        → 204
 ```
 
-### Dashboard 🔒
-```
-GET    /weeks/:weekId/dashboard  →  {
-  filledCount, totalActiveUsers,
-  unfilledUsers: [{ id, name }, ...],
-  understaffedSlots: [{ day, slot, role, needed, assigned }, ...]
-}
-```
+### Dashboard
+
+No dedicated endpoint. Schedule health is a **frontend-only** coverage badge on each
+`draft`/`published` week card ("Fully staffed" / "N open spots"), computed from the
+week's assignments + requirements. See §9.
 
 ### Export 🔒
 ```
@@ -486,11 +483,11 @@ Use this to orient at the start of each session.
 | Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working + at-weekly-limit hints as pills; flagged candidates get an amber "unsafe" row but stay selectable per override; safe candidates sort first). **Bosses always appear in a separate tier at the bottom** (any role, no eligibility filtering) so the boss can staff a slot themselves when no employee fits. Chip × removes. Understaffed days auto-expand. |
 | Published schedule — employee view | Employee home (`/`) shows a read-only schedule card for the most recent `published` week, with a **My Shifts / Everyone** toggle. *My Shifts*: the employee's own shifts as a list. *Everyone*: a grid (days as columns, slots as rows, sticky slot column, horizontal scroll) with per-cell name chips color-coded by role (barista indigo, cook teal), own name highlighted. `GET /weeks/:weekId/assignments` also returns `assignees: [{id, name}]` so employees can render names without the boss-only user list. |
 | Availability tracking — dashboard | Each `availability_open` week card lists active employees who haven't submitted availability yet ("Waiting on availability" amber pills), or "Everyone has submitted" when complete — so the boss knows who to nudge. "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users`. |
+| Schedule health badge | Each `draft`/`published` week card shows a one-line coverage badge: green "Fully staffed" or amber "N open spots" (`open spots = Σ max(0, needed − assigned)` across the week's requirements). Frontend-only `ScheduleHealth` component (`DashboardPage.tsx`), mirrors `PendingAvailability` — fetches the week's assignments + requirements, no dedicated endpoint. Replaces the originally-planned `GET /weeks/:weekId/dashboard` (endpoint + `DashboardDto` removed as redundant with the Review modal). |
 | PDF export (HTML print) | `GET /weeks/:weekId/export.html` — boss-only, published-only. Pure `server/src/services/scheduleExport.ts` (`buildScheduleView` + `renderScheduleHtml`, 8 Vitest tests) shapes assignments into a days×slots grid and renders a standalone print-optimized page (role-colored name chips, landscape `@page`, print-color-adjust). Scrolls horizontally on phones, collapses to one page on print. Format→exporter registry; `export.pdf` stays a 501 stub reserved for a future binary. Boss dashboard shows a "Print / Export" link on published week cards (`api.weeks.exportUrl`, opens in a new tab). |
 
 ### ❌ Not yet built
 
 | Area | Notes |
 |---|---|
-| Dashboard stats | `GET /weeks/:weekId/dashboard` — fill rate, unfilled users, understaffed slots. Stubbed. |
 | True PDF binary | `GET /weeks/:weekId/export.pdf` — server-side binary (puppeteer or a PDF lib). Stubbed (501); reserved seam exists in `scheduleExport.ts`. Only if HTML print proves insufficient. |

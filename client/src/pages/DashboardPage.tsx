@@ -588,6 +588,59 @@ function PendingAvailability({ weekId }: { weekId: number }) {
   );
 }
 
+// ── Schedule health (draft / published weeks) ─────────────────────────────────
+
+// A one-line coverage badge: how many role-slots still need a body. "Open spots" =
+// Σ max(0, needed − assigned) across every requirement (overstaffing is a hard cap,
+// so this is always ≥ 0). Frontend-only, mirrors PendingAvailability.
+function ScheduleHealth({
+  weekId,
+  refreshKey,
+}: {
+  weekId: number;
+  refreshKey: number;
+}) {
+  const { t } = useTranslation();
+  const [openSpots, setOpenSpots] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // refreshKey bumps whenever an action may have changed assignments/requirements
+  // (Review/Requirements modal close, assigner run) so the badge re-fetches.
+  useEffect(() => {
+    Promise.all([api.assignments.list(weekId), api.requirements.get(weekId)])
+      .then(([{ assignments }, { requirements }]) => {
+        let spots = 0;
+        for (const r of requirements) {
+          const filled = (role: string) =>
+            assignments.filter(
+              (a) => a.day === r.day && a.slot === r.slot && a.roleWorking === role
+            ).length;
+          spots += Math.max(0, r.cooksNeeded - filled("cook"));
+          spots += Math.max(0, r.baristasNeeded - filled("barista"));
+        }
+        setOpenSpots(spots);
+      })
+      .catch(() => setError(t("weeks.loadError")));
+  }, [weekId, t, refreshKey]);
+
+  if (error)
+    return <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-red-600">{error}</p>;
+  if (openSpots === null) return null; // stay quiet while loading
+
+  return (
+    <p
+      className={`mt-3 border-t border-gray-100 pt-3 text-xs ${
+        openSpots === 0 ? "text-green-600" : "text-amber-600"
+      }`}
+    >
+      <span aria-hidden>{openSpots === 0 ? "✓" : "⚠"}</span>{" "}
+      {openSpots === 0
+        ? t("weeks.health.fullyStaffed")
+        : t("weeks.health.openSpots", { count: openSpots })}
+    </p>
+  );
+}
+
 // ── Week card ─────────────────────────────────────────────────────────────────
 
 function WeekCard({
@@ -600,6 +653,7 @@ function WeekCard({
   onReview,
   transitioning,
   running,
+  healthRefresh,
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
@@ -610,6 +664,7 @@ function WeekCard({
   onReview: (week: WeekDto) => void;
   transitioning: boolean;
   running: boolean;
+  healthRefresh: number;
 }) {
   const { t } = useTranslation();
   const status = week.status;
@@ -640,6 +695,9 @@ function WeekCard({
 
       {/* Collapsed cards still surface who the boss is waiting on for open weeks. */}
       {status === "availability_open" && <PendingAvailability weekId={week.id} />}
+      {(status === "draft" || status === "published") && (
+        <ScheduleHealth weekId={week.id} refreshKey={healthRefresh} />
+      )}
 
       {expanded && (
         <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
@@ -784,6 +842,9 @@ export default function DashboardPage() {
   const [requirementsTarget, setRequirementsTarget] = useState<WeekDto | null>(null);
   const [shiftCountsTarget, setShiftCountsTarget] = useState<WeekDto | null>(null);
   const [reviewTarget, setReviewTarget] = useState<WeekDto | null>(null);
+  // Bumped after actions that change assignments/requirements so ScheduleHealth re-fetches.
+  const [healthRefresh, setHealthRefresh] = useState(0);
+  const bumpHealth = () => setHealthRefresh((k) => k + 1);
 
   useEffect(() => {
     api.weeks
@@ -841,11 +902,22 @@ export default function DashboardPage() {
       setWeeks((prev) =>
         prev.map((w) => (w.id === weekId ? { ...w, status: "draft" as WeekStatus } : w))
       );
+      bumpHealth(); // re-running on an already-draft week keeps the same mounted badge
     } catch (err) {
       setRunError(err instanceof Error ? err.message : t("common.unknownError"));
     } finally {
       setRunning(false);
     }
+  };
+
+  const closeReview = () => {
+    setReviewTarget(null);
+    bumpHealth();
+  };
+
+  const closeRequirements = () => {
+    setRequirementsTarget(null);
+    bumpHealth();
   };
 
   const isSunday = new Date().getUTCDay() === 0;
@@ -898,6 +970,7 @@ export default function DashboardPage() {
             onReview={setReviewTarget}
             transitioning={transitioning}
             running={running}
+            healthRefresh={healthRefresh}
           />
         ))}
       </main>
@@ -927,10 +1000,7 @@ export default function DashboardPage() {
       )}
 
       {requirementsTarget && (
-        <RequirementsModal
-          week={requirementsTarget}
-          onClose={() => setRequirementsTarget(null)}
-        />
+        <RequirementsModal week={requirementsTarget} onClose={closeRequirements} />
       )}
 
       {shiftCountsTarget && (
@@ -941,10 +1011,7 @@ export default function DashboardPage() {
       )}
 
       {reviewTarget && (
-        <ReviewScheduleModal
-          week={reviewTarget}
-          onClose={() => setReviewTarget(null)}
-        />
+        <ReviewScheduleModal week={reviewTarget} onClose={closeReview} />
       )}
 
       {deleteTarget && (

@@ -77,19 +77,6 @@ export interface AssigneeDto {
   name: string;
 }
 
-export interface DashboardDto {
-  filledCount: number;
-  totalActiveUsers: number;
-  unfilledUsers: Array<{ id: number; name: string }>;
-  understaffedSlots: Array<{
-    day: number;
-    slot: Slot;
-    role: RoleWorking;
-    needed: number;
-    assigned: number;
-  }>;
-}
-
 export interface ApiError {
   error: string;
   code: string;

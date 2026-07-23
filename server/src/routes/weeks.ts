@@ -261,11 +261,6 @@ router.delete("/:id", requireLogin, requireBoss, async (req, res, next) => {
   }
 });
 
-// GET /weeks/:weekId/dashboard (boss only) — stubbed until availability + assignments are built
-router.get("/:weekId/dashboard", requireLogin, requireBoss, async (_req, res) => {
-  res.status(501).json({ error: "Not implemented", code: "NOT_IMPLEMENTED" });
-});
-
 // GET /weeks/:weekId/export.html | export.pdf  (boss only, published weeks only)
 // Serves a styled HTML print page (DESIGN.md §6). The handler is format-parameterized
 // so `export.pdf` can be swapped from the stub below to makeExportHandler("pdf") once a
