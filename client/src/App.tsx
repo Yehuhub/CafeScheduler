@@ -21,6 +21,14 @@ export default function App() {
             }
           />
           <Route
+            path="/schedule"
+            element={
+              <ProtectedRoute>
+                <EmployeePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/dashboard"
             element={
               <ProtectedRoute bossOnly>

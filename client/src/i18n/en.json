@@ -36,6 +36,7 @@
     "cannotDeleteSelf": "You cannot delete your own account"
   },
   "nav": {
+    "home": "Home",
     "schedule": "Schedule",
     "users": "Staff"
   },
@@ -87,10 +88,17 @@
     "roles": "Roles",
     "myShifts": "My Shifts",
     "everyone": "Everyone",
+    "fullView": "Full view",
     "thisWeek": "This week",
     "upcoming": "Upcoming",
+    "past": "Past",
+    "prevWeek": "Previous week",
+    "nextWeek": "Next week",
+    "goToCurrent": "Go to current week",
     "noShifts": "You have no shifts scheduled this week.",
-    "emptySchedule": "No shifts scheduled this week."
+    "emptySchedule": "No shifts scheduled this week.",
+    "noScheduleMade": "No schedule was made for this week",
+    "noScheduleMadeYet": "No schedule was made for this week yet"
   },
   "requirements": {
     "title": "Shift Requirements",

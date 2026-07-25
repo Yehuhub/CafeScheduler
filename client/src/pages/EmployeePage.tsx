@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
+import EmployeeNav from "../components/EmployeeNav";
 import { api } from "../api";
 import { SLOTS } from "@shared/types";
-import { isPastWeek, isCurrentWeek } from "@shared/weekDates";
+import { weekStartOf } from "@shared/weekDates";
 import type { WeekDto, Slot, AssignmentDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -267,11 +268,20 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
 
   return (
     <div>
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
         <div className="inline-flex rounded-md border border-gray-200 p-0.5">
           {tab("mine", t("employee.myShifts"))}
           {tab("all", t("employee.everyone"))}
         </div>
+        {/* Full view — the same styled HTML schedule the boss can export/print. */}
+        <a
+          href={api.weeks.exportUrl(week.id)}
+          target="_blank"
+          rel="noopener"
+          className="rounded border border-indigo-200 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+        >
+          {t("employee.fullView")}
+        </a>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -285,10 +295,12 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
         ) : (
           <ul className="divide-y divide-gray-100">
             {mine.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <li key={s.id} className="grid grid-cols-3 items-center gap-3 py-2 text-sm">
                 <span className="font-medium">{t(`days.${s.day}`)}</span>
-                <span className="text-gray-600">{t(`slots.${s.slot}`)}</span>
-                <RolePill role={s.roleWorking} />
+                <span className="text-center text-gray-600">{t(`slots.${s.slot}`)}</span>
+                <div className="flex justify-end">
+                  <RolePill role={s.roleWorking} />
+                </div>
               </li>
             ))}
           </ul>
@@ -372,51 +384,81 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
   );
 }
 
-// Accordion card wrapping one published week's schedule. The current week opens by
-// default; upcoming weeks start collapsed. Past weeks aren't shown to employees.
-function PublishedWeekCard({
-  week,
-  userId,
-  current,
-  defaultExpanded,
-}: {
-  week: WeekDto;
-  userId: number;
-  current: boolean;
-  defaultExpanded: boolean;
-}) {
+// Shows one published week at a time with ‹ › navigation across the calendar (any week,
+// scheduled or not), defaulting to the current week. `weeks` is the published weeks
+// (past + current + upcoming) looked up by date; absent weeks show a message.
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function ScheduleWeekView({ weeks, userId }: { weeks: WeekDto[]; userId: number }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const currentStart = weekStartOf();
+  const [start, setStart] = useState<Date>(() => currentStart);
+
+  const byDate = useMemo(() => {
+    const m = new Map<string, WeekDto>();
+    for (const w of weeks) m.set(w.startDate.slice(0, 10), w);
+    return m;
+  }, [weeks]);
+
+  const week = byDate.get(isoDay(start));
+  const isCurrent = isoDay(start) === isoDay(currentStart);
+  const isPast = start.getTime() < currentStart.getTime();
+  const label = isCurrent ? "thisWeek" : isPast ? "past" : "upcoming";
+
+  const step = (dir: -1 | 1) =>
+    setStart((s) => {
+      const d = new Date(s);
+      d.setUTCDate(d.getUTCDate() + dir * 7);
+      return d;
+    });
+
+  const arrow = (dir: -1 | 1, aria: string, glyph: string) => (
+    <button
+      type="button"
+      onClick={() => step(dir)}
+      aria-label={aria}
+      className="rounded p-2 text-xl leading-none text-gray-600 hover:bg-gray-100"
+    >
+      {glyph}
+    </button>
+  );
 
   return (
     <div className="rounded-lg border bg-white p-4 shadow-sm">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-2 text-start"
-      >
-        <span className="flex flex-col">
-          <span className="text-xs font-medium text-indigo-600">
-            {current ? t("employee.thisWeek") : t("employee.upcoming")}
-          </span>
-          <span className="font-medium">
-            {t("availability.weekOf", { date: formatDate(week.startDate) })}
-          </span>
-        </span>
-        <span
-          aria-hidden
-          className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
-        >
-          ▸
-        </span>
-      </button>
+      <div className="flex items-center justify-between gap-2">
+        {arrow(-1, t("employee.prevWeek"), "‹")}
+        <div className="text-center">
+          <span className="text-xs font-medium text-indigo-600">{t(`employee.${label}`)}</span>
+          <div className="font-medium">
+            {t("availability.weekOf", { date: formatDate(start.toISOString()) })}
+          </div>
+        </div>
+        {arrow(1, t("employee.nextWeek"), "›")}
+      </div>
 
-      {expanded && (
-        <div className="mt-3 border-t border-gray-100 pt-3">
-          <PublishedSchedule week={week} userId={userId} />
+      {!isCurrent && (
+        <div className="mt-1 text-center">
+          <button
+            type="button"
+            onClick={() => setStart(currentStart)}
+            className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100"
+          >
+            {t("employee.goToCurrent")}
+          </button>
         </div>
       )}
+
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        {week ? (
+          <PublishedSchedule week={week} userId={userId} />
+        ) : (
+          <p className="py-2 text-sm text-gray-500">
+            {t(isPast ? "employee.noScheduleMade" : "employee.noScheduleMadeYet")}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -425,8 +467,8 @@ function PublishedWeekCard({
 
 export default function EmployeePage() {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { pathname } = useLocation();
 
   const [openWeek, setOpenWeek] = useState<WeekDto | null | undefined>(undefined); // undefined = loading
   const [publishedWeeks, setPublishedWeeks] = useState<WeekDto[]>([]);
@@ -444,12 +486,8 @@ export default function EmployeePage() {
             : open.reduce((earliest, w) => (w.startDate < earliest.startDate ? w : earliest))
         );
 
-        // Show the current + upcoming published weeks (fully-past ones are hidden from
-        // employees). Ascending by date so the current week sorts first.
-        const published = weeks
-          .filter((w) => w.status === "published" && !isPastWeek(w.startDate))
-          .sort((a, b) => a.startDate.localeCompare(b.startDate));
-        setPublishedWeeks(published);
+        // All published weeks (past too) — the schedule navigator looks them up by date.
+        setPublishedWeeks(weeks.filter((w) => w.status === "published"));
       })
       .catch(() => setWeekError(t("weeks.loadError")));
   }, [t]);
@@ -462,81 +500,69 @@ export default function EmployeePage() {
     user.isBarista && t("users.isBarista"),
   ].filter(Boolean);
 
-  // Open the current week by default; if none is current (only upcoming), open the earliest.
-  const openByDefaultId =
-    publishedWeeks.find((w) => isCurrentWeek(w.startDate))?.id ?? publishedWeeks[0]?.id;
-
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
-  };
+  const tab = pathname === "/schedule" ? "schedule" : "home";
+  const loading = openWeek === undefined && !weekError;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white px-4 py-3">
-        <div className="mx-auto flex max-w-md items-center justify-between">
-          <h1 className="text-lg font-semibold">{t("employee.title")}</h1>
-          <button
-            onClick={handleLogout}
-            className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
-          >
-            {t("auth.logout")}
-          </button>
-        </div>
-      </header>
+      <EmployeeNav />
 
       <main className="mx-auto max-w-md space-y-4 p-4">
         {weekError && <p className="text-sm text-red-600">{weekError}</p>}
 
-        {/* Published schedules — current week + any upcoming, current expanded */}
-        {publishedWeeks.map((w) => (
-          <PublishedWeekCard
-            key={w.id}
-            week={w}
-            userId={user.id}
-            current={isCurrentWeek(w.startDate)}
-            defaultExpanded={w.id === openByDefaultId}
-          />
-        ))}
+        {/* Home — availability first (so a missing submission is obvious), then profile. */}
+        {tab === "home" && (
+          <>
+            {loading && (
+              <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>
+            )}
 
-        {/* Availability form */}
-
-        {openWeek === undefined && !weekError && (
-          <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>
-        )}
-
-        {openWeek === null && !weekError && (
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">{t("availability.noOpenWeek")}</p>
-          </div>
-        )}
-
-        {openWeek && <AvailabilityForm week={openWeek} />}
-
-        {/* Profile card — secondary */}
-        <div className="rounded-lg border bg-white p-4 shadow-sm">
-          <h2 className="font-semibold">{user.name}</h2>
-          <p className="mt-0.5 text-sm text-gray-500">@{user.username}</p>
-
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-gray-500">{t("users.role")}</dt>
-              <dd className="font-medium capitalize">{user.role}</dd>
-            </div>
-            {roles.length > 0 && (
-              <div className="flex justify-between">
-                <dt className="text-gray-500">{t("employee.roles")}</dt>
-                <dd className="font-medium">{roles.join(", ")}</dd>
+            {openWeek === null && !weekError && (
+              <div className="rounded-lg border bg-white p-4 shadow-sm">
+                <p className="text-sm text-gray-500">{t("availability.noOpenWeek")}</p>
               </div>
             )}
-            <div className="flex justify-between">
-              <dt className="text-gray-500">{t("users.defaultShiftsPerWeek")}</dt>
-              <dd className="font-medium">
-                {t("users.shiftsPerWeek", { count: user.defaultShiftsPerWeek })}
-              </dd>
+
+            {openWeek && <AvailabilityForm week={openWeek} />}
+
+            {/* Profile card */}
+            <div className="rounded-lg border bg-white p-4 shadow-sm">
+              <h2 className="font-semibold">{user.name}</h2>
+              <p className="mt-0.5 text-sm text-gray-500">@{user.username}</p>
+
+              <dl className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">{t("users.role")}</dt>
+                  <dd className="font-medium capitalize">{user.role}</dd>
+                </div>
+                {roles.length > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">{t("employee.roles")}</dt>
+                    <dd className="font-medium">{roles.join(", ")}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">{t("users.defaultShiftsPerWeek")}</dt>
+                  <dd className="font-medium">
+                    {t("users.shiftsPerWeek", { count: user.defaultShiftsPerWeek })}
+                  </dd>
+                </div>
+              </dl>
             </div>
-          </dl>
-        </div>
+          </>
+        )}
+
+        {/* Schedule — one week at a time, navigable across the calendar. */}
+        {tab === "schedule" && (
+          <>
+            {loading && (
+              <p className="text-center text-sm text-gray-400">{t("common.loading")}</p>
+            )}
+            {!loading && !weekError && (
+              <ScheduleWeekView weeks={publishedWeeks} userId={user.id} />
+            )}
+          </>
+        )}
       </main>
     </div>
   );

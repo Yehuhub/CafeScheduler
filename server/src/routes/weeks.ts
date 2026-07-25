@@ -270,7 +270,7 @@ router.delete("/:id", requireLogin, requireBoss, async (req, res, next) => {
   }
 });
 
-// GET /weeks/:weekId/export.html | export.pdf  (boss only, published weeks only)
+// GET /weeks/:weekId/export.html | export.pdf  (any logged-in user, published weeks only)
 // Serves a styled HTML print page (DESIGN.md §6). The handler is format-parameterized
 // so `export.pdf` can be swapped from the stub below to makeExportHandler("pdf") once a
 // binary exporter is registered.
@@ -325,7 +325,7 @@ function makeExportHandler(format: ExportFormat): RequestHandler {
   };
 }
 
-router.get("/:weekId/export.html", requireLogin, requireBoss, makeExportHandler("html"));
+router.get("/:weekId/export.html", requireLogin, makeExportHandler("html"));
 
 // GET /weeks/:weekId/export.pdf — stubbed (reserved for a future server-side PDF binary)
 router.get("/:weekId/export.pdf", requireLogin, async (_req, res) => {

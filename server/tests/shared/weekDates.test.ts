@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPastWeek, isCurrentWeek } from "../../../shared/weekDates";
+import { isPastWeek, isCurrentWeek, weekStartOf } from "../../../shared/weekDates";
 
 // Week of Sun 2026-07-19 spans [07-19, 07-26).
 const WEEK = "2026-07-19";
@@ -35,5 +35,18 @@ describe("isCurrentWeek", () => {
   });
   it("is false once elapsed", () => {
     expect(isCurrentWeek(WEEK, at("2026-07-26"))).toBe(false);
+  });
+});
+
+describe("weekStartOf", () => {
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  it("returns the same day for a Sunday", () => {
+    expect(iso(weekStartOf(at("2026-07-19")))).toBe("2026-07-19");
+  });
+  it("rolls back to Sunday mid-week", () => {
+    expect(iso(weekStartOf(at("2026-07-23")))).toBe("2026-07-19"); // Thu
+  });
+  it("rolls back to Sunday on Saturday", () => {
+    expect(iso(weekStartOf(at("2026-07-25")))).toBe("2026-07-19"); // Sat
   });
 });

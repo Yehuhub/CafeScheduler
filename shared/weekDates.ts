@@ -28,3 +28,11 @@ export function isCurrentWeek(startDate: string | Date, now: Date = new Date()):
   const today = utcDayMs(now);
   return today >= start && today < start + 7 * MS_PER_DAY;
 }
+
+// The Sunday (UTC midnight) that begins the week containing `date` — used by the
+// employee schedule navigator to step ±7 days across the calendar, schedule or not.
+export function weekStartOf(date: Date = new Date()): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d;
+}

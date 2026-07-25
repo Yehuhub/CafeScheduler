@@ -23,3 +23,6 @@ build/
 *.tsbuildinfo
 
 .vscode
+
+seedPastWeek.ts
+seedCurrentWeek.ts
