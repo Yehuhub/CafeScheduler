@@ -94,26 +94,56 @@ router.get("/:id", requireLogin, async (req, res, next) => {
   }
 });
 
-// POST /weeks (boss only)
-router.post("/", requireLogin, requireBoss, async (_req, res, next) => {
+// POST /weeks (boss only)  { startDate? }
+// Without startDate: opens the next sequential week (legacy "Open next week" behavior).
+// With startDate: opens that specific week — the dashboard's week navigator lets the boss
+// open any future week directly, so gaps in the sequence are allowed.
+router.post("/", requireLogin, requireBoss, async (req, res, next) => {
   try {
-    // Use only non-deleted weeks to determine the next startDate
-    const lastWeek = await prisma.week.findFirst({
-      where: { isDeleted: false },
-      orderBy: { startDate: "desc" },
-    });
+    const { startDate: requestedStart } = req.body as Record<string, unknown>;
 
     let startDate: Date;
-    if (lastWeek) {
-      startDate = new Date(lastWeek.startDate);
-      startDate.setUTCDate(startDate.getUTCDate() + 7);
+    if (requestedStart === undefined) {
+      // Use only non-deleted weeks to determine the next startDate
+      const lastWeek = await prisma.week.findFirst({
+        where: { isDeleted: false },
+        orderBy: { startDate: "desc" },
+      });
+      if (lastWeek) {
+        startDate = new Date(lastWeek.startDate);
+        startDate.setUTCDate(startDate.getUTCDate() + 7);
+      } else {
+        startDate = nextSunday(new Date());
+      }
     } else {
-      startDate = nextSunday(new Date());
+      if (typeof requestedStart !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(requestedStart)) {
+        throw new HttpError(400, "startDate must be a YYYY-MM-DD date", "VALIDATION_ERROR");
+      }
+      startDate = new Date(`${requestedStart}T00:00:00.000Z`);
+      if (isNaN(startDate.getTime())) {
+        throw new HttpError(400, "startDate is not a valid date", "VALIDATION_ERROR");
+      }
+      if (startDate.getUTCDay() !== 0) {
+        throw new HttpError(400, "startDate must be a Sunday", "VALIDATION_ERROR");
+      }
+      if (isPastWeek(startDate)) {
+        throw new HttpError(409, "Cannot open a week that has already ended", "WEEK_ENDED");
+      }
     }
+
+    // Requirements are copied from the most recent non-deleted week *before* this one,
+    // so opening a week out of sequence still inherits the nearest earlier template.
+    const lastWeek = await prisma.week.findFirst({
+      where: { isDeleted: false, startDate: { lt: startDate } },
+      orderBy: { startDate: "desc" },
+    });
 
     // A deleted week may already exist at this startDate (created then deleted).
     // Restore it to a clean state rather than trying to insert a duplicate.
     const existing = await prisma.week.findUnique({ where: { startDate } });
+    if (existing && !existing.isDeleted) {
+      throw new HttpError(409, "This week is already open", "ALREADY_EXISTS");
+    }
 
     const week = await prisma.$transaction(async (tx) => {
       if (existing) {

@@ -3,8 +3,9 @@ import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
 import ReviewScheduleModal from "../components/ReviewScheduleModal";
 import { api } from "../api";
-import { isPastWeek } from "@shared/weekDates";
-import type { WeekDto, WeekStatus, ShiftRequirementDto, Slot, UserDto } from "@shared/types";
+import { isPastWeek, weekStartOf } from "@shared/weekDates";
+import { SLOTS } from "@shared/types";
+import type { WeekDto, WeekStatus, Slot, UserDto, AvailabilityDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,10 @@ const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 function cellKey(day: number, slot: string): string {
   return `${day}-${slot}`;
+}
+
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -540,50 +545,188 @@ function ShiftCountsModal({ week, onClose }: { week: WeekDto; onClose: () => voi
   );
 }
 
-// ── Pending availability (open weeks) ─────────────────────────────────────────
+// ── Availability card ─────────────────────────────────────────────────────────
 
-// Lists active employees who haven't submitted availability yet for an open week,
-// so the boss knows who to nudge. "Submitted" = has at least one ticked slot,
-// mirroring the employee page (sparse storage means an all-empty submit reads as pending).
-function PendingAvailability({ weekId }: { weekId: number }) {
+// Read-only view of one employee's submitted grid. Rows are pre-filtered to that user
+// by the caller, so this does no fetching. Sparse storage: a row exists only when ticked.
+function EmployeeAvailabilityModal({
+  user,
+  availability,
+  onClose,
+}: {
+  user: UserDto;
+  availability: AvailabilityDto[];
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
-  const [pending, setPending] = useState<UserDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    Promise.all([api.users.list(), api.availability.getAll(weekId)])
-      .then(([{ users }, { availability }]) => {
-        const submitted = new Set(availability.map((a) => a.userId));
-        const employees = users.filter((u) => u.isActive && u.role === "employee");
-        setPending(employees.filter((u) => !submitted.has(u.id)));
-      })
-      .catch(() => setError(t("weeks.loadError")));
-  }, [weekId, t]);
-
-  if (error)
-    return <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-red-600">{error}</p>;
-  if (pending === null) return null; // stay quiet while loading
+  const ticked = new Set(availability.map((a) => cellKey(a.day, a.slot)));
 
   return (
-    <div className="mt-3 border-t border-gray-100 pt-3">
-      {pending.length === 0 ? (
-        <p className="text-xs text-green-600">{t("weeks.allSubmitted")}</p>
-      ) : (
-        <>
-          <p className="text-xs font-medium text-gray-500">
-            {t("weeks.pendingAvailabilityTitle")}
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {pending.map((u) => (
-              <span
-                key={u.id}
-                className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
-              >
-                {u.name}
-              </span>
-            ))}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <h2 className="text-base font-semibold">
+            {t("weeks.availabilityOf", { name: user.name })}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-x-auto px-4 py-3">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr>
+                <th className="pb-2 pe-3" />
+                {DAYS.map((day) => (
+                  <th key={day} className="pb-2 text-center text-xs font-medium text-gray-500">
+                    {t(`days.${day}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {SLOTS.map((slot) => (
+                <tr key={slot} className="border-t border-gray-100">
+                  <td className="whitespace-nowrap py-2 pe-3 text-xs font-medium text-gray-500">
+                    {t(`slots.${slot}`)}
+                  </td>
+                  {DAYS.map((day) => (
+                    <td key={day} className="py-2 text-center">
+                      {ticked.has(cellKey(day, slot)) ? (
+                        <span className="font-semibold text-indigo-600">✓</span>
+                      ) : (
+                        <span className="text-gray-300">·</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-t border-gray-200 px-4 py-3 text-end">
+          <button
+            onClick={onClose}
+            className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+          >
+            {t("common.close")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Who the boss is still waiting on, and who has submitted (click a name to see their
+// grid). "Submitted" = has at least one ticked slot, mirroring the employee page
+// (sparse storage means an all-empty submit reads as pending).
+function AvailabilityCard({ week }: { week: WeekDto }) {
+  const { t } = useTranslation();
+  const [employees, setEmployees] = useState<UserDto[] | null>(null);
+  const [availability, setAvailability] = useState<AvailabilityDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const [viewing, setViewing] = useState<UserDto | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.users.list(), api.availability.getAll(week.id)])
+      .then(([{ users }, { availability }]) => {
+        setEmployees(users.filter((u) => u.isActive && u.role === "employee"));
+        setAvailability(availability);
+      })
+      .catch(() => setError(t("weeks.loadError")));
+  }, [week.id, t]);
+
+  if (error)
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <p className="text-sm text-red-600">{error}</p>
+      </div>
+    );
+  if (employees === null) return null; // stay quiet while loading
+
+  const submittedIds = new Set(availability.map((a) => a.userId));
+  const submitted = employees.filter((u) => submittedIds.has(u.id));
+  const pending = employees.filter((u) => !submittedIds.has(u.id));
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 text-start"
+      >
+        <span className="text-sm font-medium text-gray-700">
+          {t("weeks.availabilityTitle")}
+        </span>
+        <span
+          aria-hidden
+          className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          ▸
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
+          <div>
+            {pending.length === 0 ? (
+              <p className="text-xs text-green-600">{t("weeks.allSubmitted")}</p>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-gray-500">
+                  {t("weeks.waitingOnCount", { count: pending.length })}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {pending.map((u) => (
+                    <span
+                      key={u.id}
+                      className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
+                    >
+                      {u.name}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </>
+
+          <div>
+            <p className="text-xs font-medium text-gray-500">
+              {t("weeks.submittedCount", { count: submitted.length })}
+            </p>
+            {submitted.length === 0 ? (
+              <p className="mt-1.5 text-xs text-gray-400">{t("weeks.noneSubmitted")}</p>
+            ) : (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {submitted.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setViewing(u)}
+                    className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-700 hover:border-green-300 hover:bg-green-100"
+                  >
+                    {u.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {viewing && (
+        <EmployeeAvailabilityModal
+          user={viewing}
+          availability={availability.filter((a) => a.userId === viewing.id)}
+          onClose={() => setViewing(null)}
+        />
       )}
     </div>
   );
@@ -593,7 +736,7 @@ function PendingAvailability({ weekId }: { weekId: number }) {
 
 // A one-line coverage badge: how many role-slots still need a body. "Open spots" =
 // Σ max(0, needed − assigned) across every requirement (overstaffing is a hard cap,
-// so this is always ≥ 0). Frontend-only, mirrors PendingAvailability.
+// so this is always ≥ 0). Frontend-only — computed from the week's own data.
 function ScheduleHealth({
   weekId,
   refreshKey,
@@ -644,13 +787,12 @@ function ScheduleHealth({
 
 // ── Week card ─────────────────────────────────────────────────────────────────
 
-function WeekCard({
+// The body of the currently-navigated week: status signals, actions, and config.
+// The surrounding navigator renders the date header + status badge.
+function WeekPanel({
   week,
   onTransition,
-  onDelete,
-  onEditRequirements,
-  onEditShiftCounts,
-  onRunAssigner,
+  onCloseAvailability,
   onReview,
   transitioning,
   running,
@@ -659,10 +801,7 @@ function WeekCard({
 }: {
   week: WeekDto;
   onTransition: (weekId: number, from: WeekStatus, to: WeekStatus) => void;
-  onDelete: (week: WeekDto) => void;
-  onEditRequirements: (week: WeekDto) => void;
-  onEditShiftCounts: (week: WeekDto) => void;
-  onRunAssigner: (weekId: number) => void;
+  onCloseAvailability: (weekId: number) => void;
   onReview: (week: WeekDto) => void;
   transitioning: boolean;
   running: boolean;
@@ -672,42 +811,16 @@ function WeekCard({
 }) {
   const { t } = useTranslation();
   const status = week.status;
-  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-lg border bg-white p-4 shadow-sm">
-      {/* Whole header toggles the card; collapsed shows just date + status. */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-2 text-start"
-      >
-        <span className="font-medium">
-          {t("weeks.weekOf", { date: formatDate(week.startDate) })}
-        </span>
-        <span className="flex items-center gap-2">
-          <StatusBadge status={status} />
-          <span
-            aria-hidden
-            className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
-          >
-            ▸
-          </span>
-        </span>
-      </button>
-
-      {/* Collapsed cards still surface who the boss is waiting on for open weeks.
-          Both badges are live/actionable signals — suppressed on frozen past weeks. */}
-      {!readOnly && status === "availability_open" && (
-        <PendingAvailability weekId={week.id} />
-      )}
+    <div>
+      {/* Live/actionable signals — suppressed on frozen past weeks. */}
       {!readOnly && (status === "draft" || status === "published") && (
         <ScheduleHealth weekId={week.id} refreshKey={healthRefresh} />
       )}
 
       {/* Past week: view + export only. */}
-      {expanded && readOnly && status === "published" && (
+      {readOnly && status === "published" && (
         <div className="mt-3 border-t border-gray-100 pt-3">
           <a
             href={api.weeks.exportUrl(week.id)}
@@ -720,38 +833,29 @@ function WeekCard({
         </div>
       )}
 
-      {expanded && !readOnly && (
+      {!readOnly && (
         <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
           {/* Status-specific actions — stacked so each status can tier its buttons. */}
           <div className="space-y-2">
-            {status === "availability_open" && (
+            {/* Closing availability also builds the draft schedule (one atomic step). */}
+            {(status === "availability_open" || status === "availability_closed") && (
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => onTransition(week.id, status, "availability_closed")}
-                  disabled={transitioning}
-                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {t("weeks.action.closeAvailability")}
-                </button>
-              </div>
-            )}
-
-            {status === "availability_closed" && (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => onRunAssigner(week.id)}
+                  onClick={() => onCloseAvailability(week.id)}
                   disabled={transitioning || running}
                   className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {running ? "…" : t("weeks.action.runAssigner")}
+                  {running ? "…" : t("weeks.action.closeAvailability")}
                 </button>
-                <button
-                  onClick={() => onTransition(week.id, status, "availability_open")}
-                  disabled={transitioning || running}
-                  className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                >
-                  {t("weeks.action.reopenAvailability")}
-                </button>
+                {status === "availability_closed" && (
+                  <button
+                    onClick={() => onTransition(week.id, status, "availability_open")}
+                    disabled={transitioning || running}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {t("weeks.action.reopenAvailability")}
+                  </button>
+                )}
               </div>
             )}
 
@@ -774,7 +878,7 @@ function WeekCard({
                     {t("review.reviewDraft")}
                   </button>
                 </div>
-                {/* Secondary: less-common escape hatches — smaller. */}
+                {/* Secondary: reopening availability rebuilds the draft on close. */}
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => onTransition(week.id, status, "availability_open")}
@@ -782,13 +886,6 @@ function WeekCard({
                     className="rounded border border-amber-300 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50"
                   >
                     {t("weeks.action.reopenAvailability")} ⚠
-                  </button>
-                  <button
-                    onClick={() => onRunAssigner(week.id)}
-                    disabled={transitioning || running}
-                    className="rounded border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                  >
-                    {running ? "…" : t("weeks.action.rerunAssigner")}
                   </button>
                 </div>
               </>
@@ -814,31 +911,68 @@ function WeekCard({
             )}
           </div>
 
-          {/* Configuration — always behind the accordion to keep collapsed cards tidy. */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => onEditRequirements(week)}
-              className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
-            >
-              {t("requirements.editRequirements")}
-            </button>
-            {/* Shift counts only feed the assigner, which can't run once published —
-                so editing them post-publish does nothing. Hide the button then. */}
-            {status !== "published" && (
-              <button
-                onClick={() => onEditShiftCounts(week)}
-                className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
-              >
-                {t("shiftCounts.editShiftCounts")}
-              </button>
-            )}
-            <button
-              onClick={() => onDelete(week)}
-              className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 hover:border-red-300 hover:bg-red-100"
-            >
-              {t("weeks.deleteWeek")}
-            </button>
-          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Configuration card ────────────────────────────────────────────────────────
+
+// Week setup + destructive actions, collapsed by default so the week card stays
+// focused on the current step. Only rendered for editable (non-past) weeks.
+function ConfigurationCard({
+  week,
+  onEditRequirements,
+  onEditShiftCounts,
+  onDelete,
+}: {
+  week: WeekDto;
+  onEditRequirements: (week: WeekDto) => void;
+  onEditShiftCounts: (week: WeekDto) => void;
+  onDelete: (week: WeekDto) => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 text-start"
+      >
+        <span className="text-sm font-medium text-gray-700">{t("weeks.configuration")}</span>
+        <span
+          aria-hidden
+          className={`text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          ▸
+        </span>
+      </button>
+
+      {/* Equal thirds so all three fit on one row, even on a narrow phone. */}
+      {expanded && (
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-200 pt-3">
+          <button
+            onClick={() => onEditRequirements(week)}
+            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+          >
+            {t("requirements.editRequirements")}
+          </button>
+          <button
+            onClick={() => onEditShiftCounts(week)}
+            className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-xs text-indigo-600 hover:border-indigo-300 hover:bg-indigo-100"
+          >
+            {t("shiftCounts.editShiftCounts")}
+          </button>
+          <button
+            onClick={() => onDelete(week)}
+            className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-600 hover:border-red-300 hover:bg-red-100"
+          >
+            {t("weeks.deleteWeek")}
+          </button>
         </div>
       )}
     </div>
@@ -866,7 +1000,8 @@ export default function DashboardPage() {
   // Bumped after actions that change assignments/requirements so ScheduleHealth re-fetches.
   const [healthRefresh, setHealthRefresh] = useState(0);
   const bumpHealth = () => setHealthRefresh((k) => k + 1);
-  const [showPast, setShowPast] = useState(false);
+  const currentStart = weekStartOf();
+  const [navStart, setNavStart] = useState<Date>(() => weekStartOf());
 
   useEffect(() => {
     api.weeks
@@ -876,12 +1011,13 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [t]);
 
-  const handleCreate = async () => {
+  const handleCreate = async (startDate?: string) => {
     setCreateError(null);
     setCreating(true);
     try {
-      const { week } = await api.weeks.create();
-      setWeeks((prev) => [week, ...prev]);
+      const { week } = await api.weeks.create(startDate);
+      // Replace on restore (a soft-deleted row reuses its id), otherwise prepend.
+      setWeeks((prev) => [week, ...prev.filter((w) => w.id !== week.id)]);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : t("common.unknownError"));
     } finally {
@@ -908,14 +1044,12 @@ export default function DashboardPage() {
       setConfirm({ weekId, to, kind: "wipe" });
       return;
     }
-    if (from === "availability_open" && to === "availability_closed") {
-      setConfirm({ weekId, to, kind: "close" });
-      return;
-    }
     void doTransition(weekId, to);
   };
 
-  const handleRunAssigner = async (weekId: number) => {
+  // Closing availability runs the assigner server-side and lands the week in draft,
+  // so the boss never has to think about the assigner as a separate step.
+  const handleCloseAvailability = async (weekId: number) => {
     setRunError(null);
     setRunning(true);
     try {
@@ -924,7 +1058,8 @@ export default function DashboardPage() {
       setWeeks((prev) =>
         prev.map((w) => (w.id === weekId ? { ...w, status: "draft" as WeekStatus } : w))
       );
-      bumpHealth(); // re-running on an already-draft week keeps the same mounted badge
+      setConfirm(null);
+      bumpHealth();
     } catch (err) {
       setRunError(err instanceof Error ? err.message : t("common.unknownError"));
     } finally {
@@ -945,25 +1080,28 @@ export default function DashboardPage() {
   const isSunday = new Date().getUTCDay() === 0;
   const hasOpenWeek = weeks.some((w) => w.status !== "published");
 
-  // Fully-elapsed weeks are archived: hidden behind a toggle and rendered read-only.
-  const currentWeeks = weeks.filter((w) => !isPastWeek(w.startDate));
-  const pastWeeks = weeks.filter((w) => isPastWeek(w.startDate));
+  // One week at a time, navigated by date across the calendar (opened or not).
+  const weeksByDate = new Map(weeks.map((w) => [w.startDate.slice(0, 10), w]));
+  const shownWeek = weeksByDate.get(isoDay(navStart));
+  const navIsCurrent = isoDay(navStart) === isoDay(currentStart);
+  const navIsPast = navStart.getTime() < currentStart.getTime();
 
-  const renderWeekCard = (week: WeekDto, readOnly: boolean) => (
-    <WeekCard
-      key={week.id}
-      week={week}
-      onTransition={handleTransition}
-      onDelete={setDeleteTarget}
-      onEditRequirements={setRequirementsTarget}
-      onEditShiftCounts={setShiftCountsTarget}
-      onRunAssigner={handleRunAssigner}
-      onReview={setReviewTarget}
-      transitioning={transitioning}
-      running={running}
-      healthRefresh={healthRefresh}
-      readOnly={readOnly}
-    />
+  const stepWeek = (dir: -1 | 1) =>
+    setNavStart((s) => {
+      const d = new Date(s);
+      d.setUTCDate(d.getUTCDate() + dir * 7);
+      return d;
+    });
+
+  const navArrow = (dir: -1 | 1, aria: string, glyph: string) => (
+    <button
+      type="button"
+      onClick={() => stepWeek(dir)}
+      aria-label={aria}
+      className="rounded p-2 text-xl leading-none text-gray-600 hover:bg-gray-100"
+    >
+      {glyph}
+    </button>
   );
 
   return (
@@ -977,16 +1115,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">{t("weeks.title")}</h1>
-          <button
-            onClick={handleCreate}
-            disabled={creating}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {creating ? "…" : `+ ${t("weeks.openNextWeek")}`}
-          </button>
-        </div>
+        <h1 className="text-lg font-semibold">{t("weeks.title")}</h1>
 
         {createError && <p className="text-sm text-red-600">{createError}</p>}
         {transitionError && <p className="text-sm text-red-600">{transitionError}</p>}
@@ -997,26 +1126,89 @@ export default function DashboardPage() {
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        {!loading && !error && weeks.length === 0 && (
-          <p className="text-center text-sm text-gray-400">{t("weeks.noWeeks")}</p>
-        )}
+        {!loading && !error && (
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            {/* Week navigator — steps across the calendar, opened weeks or not. */}
+            <div className="flex items-center justify-between gap-2">
+              {navArrow(-1, t("employee.prevWeek"), "‹")}
+              <div className="text-center">
+                <div className="font-medium">
+                  {t("weeks.weekOf", { date: formatDate(navStart.toISOString()) })}
+                </div>
+                <div className="mt-0.5 flex items-center justify-center gap-2">
+                  {shownWeek ? (
+                    <StatusBadge status={shownWeek.status} />
+                  ) : (
+                    <span className="text-xs text-gray-400">{t("weeks.notOpened")}</span>
+                  )}
+                  {navIsCurrent && (
+                    <span className="text-xs font-medium text-indigo-600">
+                      {t("employee.thisWeek")}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {navArrow(1, t("employee.nextWeek"), "›")}
+            </div>
 
-        {currentWeeks.map((week) => renderWeekCard(week, false))}
+            {!navIsCurrent && (
+              <div className="mt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setNavStart(currentStart)}
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100"
+                >
+                  {t("employee.goToCurrent")}
+                </button>
+              </div>
+            )}
 
-        {pastWeeks.length > 0 && (
-          <div className="space-y-3 pt-1">
-            <button
-              onClick={() => setShowPast((v) => !v)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:bg-gray-100"
-            >
-              <span aria-hidden className={`transition-transform ${showPast ? "rotate-90" : ""}`}>
-                ▸
-              </span>
-              {showPast
-                ? t("weeks.hidePast")
-                : t("weeks.showPast", { count: pastWeeks.length })}
-            </button>
-            {showPast && pastWeeks.map((week) => renderWeekCard(week, true))}
+            {shownWeek ? (
+              <WeekPanel
+                week={shownWeek}
+                onTransition={handleTransition}
+                onCloseAvailability={(weekId) =>
+                  setConfirm({ weekId, to: "draft", kind: "close" })
+                }
+                onReview={setReviewTarget}
+                transitioning={transitioning}
+                running={running}
+                healthRefresh={healthRefresh}
+                readOnly={isPastWeek(shownWeek.startDate)}
+              />
+            ) : (
+              <div className="mt-3 border-t border-gray-100 pt-3 text-center">
+                {navIsPast ? (
+                  <p className="py-2 text-sm text-gray-500">{t("weeks.pastNotOpened")}</p>
+                ) : (
+                  <>
+                    <p className="py-2 text-sm text-gray-500">{t("weeks.notOpenedYet")}</p>
+                    <button
+                      onClick={() => void handleCreate(isoDay(navStart))}
+                      disabled={creating}
+                      className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {creating ? "…" : t("weeks.openThisWeek")}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Nested sub-cards for this week — collapsible detail that would otherwise
+                crowd the week's primary actions. Both are hidden on frozen past weeks. */}
+            {shownWeek && !isPastWeek(shownWeek.startDate) && (
+              <div className="mt-3 space-y-2">
+                {/* Availability isn't useful once the schedule is published. */}
+                {shownWeek.status !== "published" && <AvailabilityCard week={shownWeek} />}
+                <ConfigurationCard
+                  week={shownWeek}
+                  onEditRequirements={setRequirementsTarget}
+                  onEditShiftCounts={setShiftCountsTarget}
+                  onDelete={setDeleteTarget}
+                />
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -1039,9 +1231,13 @@ export default function DashboardPage() {
               : "weeks.confirmCloseAction",
           )}
           tone={confirm.kind === "wipe" ? "warning" : "primary"}
-          onConfirm={() => void doTransition(confirm.weekId, confirm.to)}
+          onConfirm={() =>
+            confirm.kind === "close"
+              ? void handleCloseAvailability(confirm.weekId)
+              : void doTransition(confirm.weekId, confirm.to)
+          }
           onCancel={() => setConfirm(null)}
-          loading={transitioning}
+          loading={transitioning || running}
         />
       )}
 

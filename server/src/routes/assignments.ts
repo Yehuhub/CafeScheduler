@@ -75,13 +75,15 @@ router.post(
       const week = await prisma.week.findUnique({ where: { id: weekId, isDeleted: false } });
       if (!week) throw new HttpError(404, "Week not found", "NOT_FOUND");
 
+      // Closing availability generates the draft in one step, so `availability_open` is
+      // accepted here: the transaction below closes the week and fills it atomically —
+      // a week can never land in a closed-but-unassigned dead end.
       const status = week.status as WeekStatus;
-      if (status !== "availability_closed" && status !== "draft") {
-        throw new HttpError(
-          409,
-          "Assigner can only run when week is availability_closed or draft",
-          "INVALID_STATE"
-        );
+      if (status === "published") {
+        throw new HttpError(409, "Cannot run the assigner on a published week", "INVALID_STATE");
+      }
+      if (isPastWeek(week.startDate)) {
+        throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
       }
 
       // Gather all inputs for the pure assigner function

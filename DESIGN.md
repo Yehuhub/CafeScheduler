@@ -135,10 +135,8 @@ Each Week has a `status` that progresses through this lifecycle:
 
 ```
         availability_open
-                │  (boss closes form)
-                ▼
-        availability_closed
-                │  (boss runs assigner)
+                │  (boss closes availability — runs the assigner in the
+                │   same transaction, so the week lands directly in draft)
                 ▼
             draft
                 │  (boss publishes)
@@ -161,17 +159,24 @@ Each Week has a `status` that progresses through this lifecycle:
 |---|---|---|---|---|
 | Employee edits own availability | ✓ | ✗ | ✗ | ✗ |
 | Boss edits requirements | ✓ | ✓ | ✓ ⚠ | ✓ ⚠ |
-| Boss edits weekly shift counts | ✓ | ✓ | ✓ ⚠ | ✗ (hidden) |
-| Boss runs assigner | ✗ | ✓ | ✓ (wipes existing) | ✗ |
+| Boss edits weekly shift counts | ✓ | ✓ | ✓ ⚠ | ✓ ⚠ |
+| Boss runs assigner | ✓ (via closing availability) | ✓ | ✓ (wipes existing) | ✗ |
 | Boss manually edits assignments | ✗ | ✗ | ✓ | ✓ |
 | Employee views schedule | ✗ | ✗ | ✗ | ✓ |
 
 ⚠ = allowed but UI shows a warning that current assignments may be inconsistent.
 
-Weekly shift counts only feed the assigner, which can't run on a `published` week, so
-editing them post-publish has no effect — the Shift Counts button is hidden once
-published. Requirements stay editable there because they still cap manual assignment
-adds (overstaffing is a hard cap even post-publish).
+Requirements, Shift Counts, and Delete Week live in a collapsible **Configuration** card
+below the week card, available in every editable status. (Editing shift counts on a
+`published` week has no practical effect — they only feed the assigner — but the button
+stays for consistency.)
+
+**`availability_closed` is no longer produced by the UI.** Closing availability calls
+`POST /weeks/:weekId/assignments/run-assigner`, which accepts any non-published,
+non-past week and — in one transaction — replaces the assignments and sets `draft`.
+The boss never runs the assigner as a separate step; re-generating is done by reopening
+availability and closing it again. The status remains valid for rows already in it (the
+UI offers Close/Reopen there), and `PATCH /weeks/:id/status` still accepts it.
 
 ### Backward transitions
 
@@ -347,7 +352,10 @@ PATCH  /weeks/:weekId/shift-counts/:userId   { shiftsThisWeek }     → updated
 GET    /weeks/:weekId/assignments        → { assignments, assignees: [{id,name}] }
                                                                     (employees: only if published)
 POST   /weeks/:weekId/assignments/run-assigner    🔒                → [...]
-                                                                    wipes + regenerates
+                                                                    wipes + regenerates,
+                                                                    sets status to draft
+                                                                    (this is the boss's
+                                                                    "Close Availability")
 POST   /weeks/:weekId/assignments    🔒  { userId, day, slot, roleWorking }
                                                                     → { assignment }
 DELETE /assignments/:id   🔒                                        → 204
@@ -486,12 +494,12 @@ Use this to orient at the start of each session.
 | Weekly shift counts — backend | `GET /weeks/:weekId/shift-counts`, `PATCH /weeks/:weekId/shift-counts/:userId`. Upsert on PATCH (handles users added after week creation); no status gate. |
 | Weekly shift counts — frontend | "Shift Counts" button on every week card opens a modal. Lists active users with name, default-shifts hint, and a stepper. Saves only changed rows on submit. Amber warning banner on draft/published weeks. |
 | Assigner — pure function | `server/src/services/assigner.ts`: deterministic greedy slot-first algorithm. Static scarcity sort, scoring (shift load ×10, weekend rotation +5/+100, dual-role penalty +3), userId tiebreaker. 12 Vitest tests in `server/tests/services/assigner.test.ts`. |
-| Assigner — route + frontend | `POST /weeks/:weekId/assignments/run-assigner`: gathers inputs, calls pure function, wipes+inserts in a transaction, transitions week to `draft`. "Run Assigner" button live on `availability_closed` weeks; "Re-run Assigner" on `draft` weeks. |
+| Assigner — route + frontend | `POST /weeks/:weekId/assignments/run-assigner`: gathers inputs, calls pure function, wipes+inserts and sets `draft` in a transaction. Accepts any non-published, non-past week. **No assigner button in the UI** — the boss's "Close Availability" action calls this route, so closing availability atomically produces the draft (see §3). Re-generating = reopen availability, then close again. |
 | Week creation defaults | `POST /weeks` seeds 14 default ShiftRequirement rows (1 cook + 1 barista × morning + evening × 7 days) when no previous week exists or previous week has no requirements. |
 | Assignments — backend | `GET /weeks/:weekId/assignments` (boss: any status; employees: only when `published`, else 403), `POST /weeks/:weekId/assignments`, `DELETE /assignments/:id`. Add/remove gated to `draft`/`published`. Manual add is **override-friendly**: enforces the hard invariants (role capability, no duplicate cell, no overstaffing past the requirement cap — checked in a transaction) but lets the boss override availability, weekly shift count, and same-day double-booking. **Bosses are exempt from the role-capability check** — a boss can be assigned to any role (cook or barista) as an emergency stand-in even without the corresponding flag. |
 | Assignments — frontend | Boss "Review Draft" button on `draft` weeks / "Edit Schedule" on `published` opens `ReviewScheduleModal` (`client/src/components/ReviewScheduleModal.tsx`). Tap-to-assign, mobile-first: a vertical list of collapsible day sections → slots → cook/barista rows with `filled/needed` counts (understaffed in amber). "+ add" opens a bottom sheet of role-eligible staff (availability + already-working + at-weekly-limit hints as pills; flagged candidates get an amber "unsafe" row but stay selectable per override; safe candidates sort first). **Bosses always appear in a separate tier at the bottom** (any role, no eligibility filtering) so the boss can staff a slot themselves when no employee fits. Chip × removes. Understaffed days auto-expand. |
 | Published schedule — employee view | Employee app is tabbed via `EmployeeNav` (name + **Home** / **Schedule** tabs + logout; both are routes rendering `EmployeePage`). **Home** = open-availability card + profile. **Schedule** = a single-week navigator (`ScheduleWeekView`) with ‹ › arrows stepping across the calendar and a "Go to current week" button, defaulting to the current week; absent weeks show a message. Each shown week has a **My Shifts / Everyone** toggle. *My Shifts*: the employee's own shifts as a list. *Everyone*: a grid (days as columns, slots as rows, sticky slot column, horizontal scroll) with per-cell name chips color-coded by role (barista indigo, cook teal), own name highlighted. `GET /weeks/:weekId/assignments` also returns `assignees: [{id, name}]` so employees can render names without the boss-only user list. |
-| Availability tracking — dashboard | Each `availability_open` week card lists active employees who haven't submitted availability yet ("Waiting on availability" amber pills), or "Everyone has submitted" when complete — so the boss knows who to nudge. "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users`. |
+| Availability tracking — dashboard | An **Availability** card (`AvailabilityCard`, expanded by default, collapsible) sits below the week card on `availability_open` / `availability_closed` / `draft` weeks — not `published`, not past. Two sections: **Waiting on (n)** (amber pills, or "Everyone has submitted") and **Submitted (n)** (green pills; clicking one opens `EmployeeAvailabilityModal`, a read-only 7×3 grid of that employee's ticked slots). "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users` in a single fetch. |
 | Schedule health badge | Each `draft`/`published` week card shows a one-line coverage badge: green "Fully staffed" or amber "N open spots" (`open spots = Σ max(0, needed − assigned)` across the week's requirements). Frontend-only `ScheduleHealth` component (`DashboardPage.tsx`), mirrors `PendingAvailability` — fetches the week's assignments + requirements, no dedicated endpoint. Replaces the originally-planned `GET /weeks/:weekId/dashboard` (endpoint + `DashboardDto` removed as redundant with the Review modal). |
 | Past-week archival & freeze | Fully-elapsed weeks (see §3 "Elapsed weeks") are frozen. Backend: shared `shared/weekDates.ts` (`isPastWeek`/`isCurrentWeek`, 9 tests) + `409 WEEK_ENDED` guards on every mutation (assignments add/remove, requirements PUT, shift-counts PATCH, week status PATCH, week DELETE). Boss dashboard: past weeks hidden behind a "Show past weeks (N)" toggle, rendered read-only (`readOnly` prop — export only, badges suppressed). Employee home: past weeks not shown. |
 | PDF export (HTML print) | `GET /weeks/:weekId/export.html` — any logged-in user, published-only. Pure `server/src/services/scheduleExport.ts` (`buildScheduleView` + `renderScheduleHtml`, 8 Vitest tests) shapes assignments into a days×slots grid and renders a standalone print-optimized page (role-colored name chips, landscape `@page`, print-color-adjust). Scrolls horizontally on phones, collapses to one page on print. Format→exporter registry; `export.pdf` stays a 501 stub reserved for a future binary. Boss dashboard shows a "Print / Export" link on published week cards; employees get a "Full view" button next to the My Shifts / Everyone toggle (both via `api.weeks.exportUrl`, open in a new tab). |

@@ -95,7 +95,12 @@ export const api = {
   weeks: {
     list: () => request<{ weeks: WeekDto[] }>("/weeks"),
     current: () => request<{ week: WeekDto | null }>("/weeks/current"),
-    create: () => request<{ week: WeekDto }>("/weeks", { method: "POST" }),
+    // startDate (YYYY-MM-DD Sunday) opens that specific week; omit for the next one.
+    create: (startDate?: string) =>
+      request<{ week: WeekDto }>("/weeks", {
+        method: "POST",
+        body: JSON.stringify(startDate ? { startDate } : {}),
+      }),
     updateStatus: (id: number, status: WeekStatus) =>
       request<{ week: WeekDto }>(`/weeks/${id}/status`, {
         method: "PATCH",
