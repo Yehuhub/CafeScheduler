@@ -2,8 +2,7 @@ import { Router } from "express";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
-import { SLOTS } from "../../../shared/types";
-import type { AvailabilityDto, Slot } from "../../../shared/types";
+import type { AvailabilityDto } from "../../../shared/types";
 
 const router = Router();
 
@@ -12,7 +11,7 @@ function toAvailabilityDto(row: {
   weekId: number;
   userId: number;
   day: number;
-  slot: string;
+  shiftId: number;
   available: boolean;
 }): AvailabilityDto {
   return {
@@ -20,7 +19,7 @@ function toAvailabilityDto(row: {
     weekId: row.weekId,
     userId: row.userId,
     day: row.day,
-    slot: row.slot as Slot,
+    shiftId: row.shiftId,
     available: row.available,
   };
 }
@@ -62,6 +61,11 @@ router.put("/weeks/:weekId/availability/me", requireLogin, async (req, res, next
       throw new HttpError(400, "entries must be an array", "VALIDATION_ERROR");
     }
 
+    // Availability may only reference shifts that belong to this week.
+    const weekShiftIds = new Set(
+      (await prisma.shift.findMany({ where: { weekId }, select: { id: true } })).map((s) => s.id)
+    );
+
     // Validate each entry before writing anything
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i] as Record<string, unknown>;
@@ -73,10 +77,14 @@ router.put("/weeks/:weekId/availability/me", requireLogin, async (req, res, next
       ) {
         throw new HttpError(400, `entries[${i}].day must be an integer 0–6`, "VALIDATION_ERROR");
       }
-      if (typeof e.slot !== "string" || !SLOTS.includes(e.slot as Slot)) {
+      if (
+        typeof e.shiftId !== "number" ||
+        !Number.isInteger(e.shiftId) ||
+        !weekShiftIds.has(e.shiftId)
+      ) {
         throw new HttpError(
           400,
-          `entries[${i}].slot must be one of: ${SLOTS.join(", ")}`,
+          `entries[${i}].shiftId must be a shift belonging to this week`,
           "VALIDATION_ERROR"
         );
       }
@@ -91,7 +99,7 @@ router.put("/weeks/:weekId/availability/me", requireLogin, async (req, res, next
       // Wipe existing availability for this user + week, then insert only ticked cells
       await tx.availability.deleteMany({ where: { weekId, userId } });
 
-      const ticked = (entries as Array<{ day: number; slot: Slot; available: boolean }>).filter(
+      const ticked = (entries as Array<{ day: number; shiftId: number; available: boolean }>).filter(
         (e) => e.available
       );
 
@@ -101,7 +109,7 @@ router.put("/weeks/:weekId/availability/me", requireLogin, async (req, res, next
             weekId,
             userId,
             day: e.day,
-            slot: e.slot,
+            shiftId: e.shiftId,
             available: true,
           })),
         });

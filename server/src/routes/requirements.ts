@@ -3,8 +3,7 @@ import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { isPastWeek } from "../../../shared/weekDates";
-import { SLOTS } from "../../../shared/types";
-import type { ShiftRequirementDto, Slot } from "../../../shared/types";
+import type { ShiftRequirementDto } from "../../../shared/types";
 
 const router = Router();
 
@@ -12,7 +11,7 @@ function toRequirementDto(row: {
   id: number;
   weekId: number;
   day: number;
-  slot: string;
+  shiftId: number;
   cooksNeeded: number;
   baristasNeeded: number;
 }): ShiftRequirementDto {
@@ -20,7 +19,7 @@ function toRequirementDto(row: {
     id: row.id,
     weekId: row.weekId,
     day: row.day,
-    slot: row.slot as Slot,
+    shiftId: row.shiftId,
     cooksNeeded: row.cooksNeeded,
     baristasNeeded: row.baristasNeeded,
   };
@@ -61,6 +60,11 @@ router.put("/weeks/:weekId/requirements", requireLogin, requireBoss, async (req,
       throw new HttpError(400, "entries must be an array", "VALIDATION_ERROR");
     }
 
+    // Requirements may only reference shifts that belong to this week.
+    const weekShiftIds = new Set(
+      (await prisma.shift.findMany({ where: { weekId }, select: { id: true } })).map((s) => s.id)
+    );
+
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i] as Record<string, unknown>;
       if (
@@ -71,10 +75,14 @@ router.put("/weeks/:weekId/requirements", requireLogin, requireBoss, async (req,
       ) {
         throw new HttpError(400, `entries[${i}].day must be an integer 0–6`, "VALIDATION_ERROR");
       }
-      if (typeof e.slot !== "string" || !SLOTS.includes(e.slot as Slot)) {
+      if (
+        typeof e.shiftId !== "number" ||
+        !Number.isInteger(e.shiftId) ||
+        !weekShiftIds.has(e.shiftId)
+      ) {
         throw new HttpError(
           400,
-          `entries[${i}].slot must be one of: ${SLOTS.join(", ")}`,
+          `entries[${i}].shiftId must be a shift belonging to this week`,
           "VALIDATION_ERROR"
         );
       }
@@ -102,7 +110,7 @@ router.put("/weeks/:weekId/requirements", requireLogin, requireBoss, async (req,
       }
     }
 
-    type EntryInput = { day: number; slot: Slot; cooksNeeded: number; baristasNeeded: number };
+    type EntryInput = { day: number; shiftId: number; cooksNeeded: number; baristasNeeded: number };
 
     const rows = await prisma.$transaction(async (tx) => {
       await tx.shiftRequirement.deleteMany({ where: { weekId } });
@@ -112,7 +120,7 @@ router.put("/weeks/:weekId/requirements", requireLogin, requireBoss, async (req,
           data: (entries as EntryInput[]).map((e) => ({
             weekId,
             day: e.day,
-            slot: e.slot,
+            shiftId: e.shiftId,
             cooksNeeded: e.cooksNeeded,
             baristasNeeded: e.baristasNeeded,
           })),

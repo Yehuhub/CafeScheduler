@@ -63,9 +63,27 @@ All entities below map to database tables. Use Prisma for schema definition.
 - One row per week.
 - Week starts Sunday (Israeli convention).
 - Multiple weeks can be active simultaneously (e.g., this week `published`, next week `availability_open`).
-- `startDate` is unique. Deleting a week and re-creating it **restores** the existing row (resets to `availability_open`, wipes stale assignments and availability, re-seeds WeeklyShiftCounts). ShiftRequirements are preserved on restore.
+- `startDate` is unique. Deleting a week and re-creating it **restores** the existing row (resets to `availability_open`, wipes stale assignments and availability, re-seeds WeeklyShiftCounts). Shifts and ShiftRequirements are preserved on restore.
 - Password confirmation required to delete a week. Published weeks can be deleted.
 - `POST /weeks` computes the next startDate from the most recent **non-deleted** week only.
+
+### Shift
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | int, PK | |
+| `weekId` | FK → Week | non-null; every week owns its own shift definitions |
+| `name` | string | boss-typed display name (e.g. `"Morning"`, `"Mid Evening"`) |
+| `startTime` | string | `"HH:MM"` — drives chronological ordering in grids and the export |
+
+- Unique on `(weekId, name)`.
+- **Replaces the old fixed `slot` enum.** Shifts are fully dynamic: the boss creates,
+  renames, retimes, and removes shifts per week. `"morning"`/`"evening"` are just the two
+  default shifts seeded on a fresh week; there is no longer a special `"mid"` concept.
+- Copied forward when a new week is created (like ShiftRequirements). A holiday week is just
+  a week with a couple of extra Shift rows.
+- Deleting a Shift **cascades** to its ShiftRequirements, Availability, and Assignments
+  (`onDelete: Cascade`) — the intended behavior when the boss removes a shift.
 
 ### Availability
 
@@ -75,10 +93,10 @@ All entities below map to database tables. Use Prisma for schema definition.
 | `weekId` | FK → Week | |
 | `userId` | FK → User | |
 | `day` | int 0–6 | Sunday = 0 |
-| `slot` | enum `"morning"` \| `"mid"` \| `"evening"` | |
+| `shiftId` | FK → Shift | which shift this cell is for |
 | `available` | boolean | |
 
-- Unique on `(weekId, userId, day, slot)`.
+- Unique on `(weekId, userId, day, shiftId)`.
 - Normalized one-row-per-cell rather than a JSON blob to support "who's available Friday morning?" queries.
 
 ### ShiftRequirement
@@ -88,13 +106,16 @@ All entities below map to database tables. Use Prisma for schema definition.
 | `id` | int, PK | |
 | `weekId` | FK → Week | non-null; every week has its own copy |
 | `day` | int 0–6 | |
-| `slot` | enum `"morning"` \| `"mid"` \| `"evening"` | |
+| `shiftId` | FK → Shift | which shift these counts are for |
 | `cooksNeeded` | int | |
 | `baristasNeeded` | int | |
 
-- Unique on `(weekId, day, slot)`.
-- When a new week is created, rows are copied from the previous week's requirements (Option A from design discussion).
-- `mid` slot only exists for a day if a row with `slot = "mid"` and non-zero needs exists for that day. UI uses this to decide whether to show the mid checkbox.
+- Unique on `(weekId, day, shiftId)`.
+- When a new week is created, rows are copied from the previous week's requirements (Option A from design discussion), remapped onto the new week's copied Shift rows.
+- **A shift only exists on a day if a requirement row with non-zero needs exists for that
+  `(shift, day)`.** This is how a shift "attaches" to specific days (e.g. a holiday-only
+  shift has a requirement row only on that day). The old special-cased `mid` toggle was a
+  narrow instance of this now-general rule.
 
 ### WeeklyShiftCount
 
@@ -117,7 +138,7 @@ All entities below map to database tables. Use Prisma for schema definition.
 | `weekId` | FK → Week | |
 | `userId` | FK → User | |
 | `day` | int 0–6 | |
-| `slot` | enum | |
+| `shiftId` | FK → Shift | which shift this assignment is for |
 | `roleWorking` | enum `"cook"` \| `"barista"` | which role this user is filling in this slot |
 | `createdAt` | datetime | |
 
@@ -222,7 +243,11 @@ A deterministic, greedy slot-first algorithm that produces a draft of assignment
 
 ### Output
 
-- A list of Assignment objects (`weekId`, `userId`, `day`, `slot`, `roleWorking`)
+- A list of Assignment objects (`weekId`, `userId`, `day`, `shiftId`, `roleWorking`)
+
+Each `AssignerShiftRequirement` input carries its shift's `startTime`; the scarcity-sort
+tiebreak orders slot-instances by `(day, startTime, shiftId, role)` — a total, deterministic
+order that replaces the old hardcoded `morning < mid < evening` constant.
 
 ### Hard constraints (never violated)
 
@@ -335,11 +360,26 @@ PUT    /weeks/:weekId/availability/me  { entries: [...] }           → updated
 
 Bulk PUT — frontend submits the whole grid.
 
+### Shifts 🔒
+```
+GET    /weeks/:weekId/shifts                                        → [shift, ...]
+POST   /weeks/:weekId/shifts            { name, startTime }         → { shift }
+PATCH  /weeks/:weekId/shifts/:shiftId   { name?, startTime? }       → { shift }
+DELETE /weeks/:weekId/shifts/:shiftId                               → 204
+```
+
+Per-shift CRUD (not bulk replace) so editing one shift never disturbs another's data.
+`startTime` is `"HH:MM"`. Name is unique per week (`409 ALREADY_EXISTS` on collision).
+DELETE cascades to the shift's requirements/availability/assignments. All gated to
+non-past weeks (`409 WEEK_ENDED`).
+
 ### Shift requirements 🔒
 ```
 GET    /weeks/:weekId/requirements                                  → [...]
 PUT    /weeks/:weekId/requirements     { entries: [...] }           → updated
 ```
+
+Each entry references a `shiftId` that must belong to the week.
 
 ### Weekly shift counts 🔒
 ```
@@ -356,7 +396,7 @@ POST   /weeks/:weekId/assignments/run-assigner    🔒                → [...]
                                                                     sets status to draft
                                                                     (this is the boss's
                                                                     "Close Availability")
-POST   /weeks/:weekId/assignments    🔒  { userId, day, slot, roleWorking }
+POST   /weeks/:weekId/assignments    🔒  { userId, day, shiftId, roleWorking }
                                                                     → { assignment }
 DELETE /assignments/:id   🔒                                        → 204
 ```
@@ -387,7 +427,8 @@ plus swapping the `export.pdf` stub for `makeExportHandler("pdf")`.
 - Errors: `{ error: "human readable", code: "MACHINE_READABLE" }` with appropriate HTTP status.
   - `400` validation, `401` not logged in, `403` not allowed, `404` not found, `409` illegal state transition.
 - Dates are ISO strings (`"2026-06-07"`).
-- Slot values lowercase: `"morning"`, `"mid"`, `"evening"`.
+- Shifts are referenced by `shiftId` (int); a shift's display name and `startTime` come from
+  its Shift row, not from a fixed enum.
 
 ---
 
@@ -465,7 +506,6 @@ Things deliberately punted but worth remembering:
 
 - **Notifications.** Likely first addition. Email is simplest; WhatsApp would require external service.
 - **Hebrew translation.** Translation file + small CSS audit for RTL. Maybe a language toggle.
-- **More slot types.** Schema supports `morning | mid | evening`. Adding a fourth (e.g., "late") is an enum migration + UI handling.
 - **Employee preferences.** "I prefer mornings." Would extend the assigner scoring.
 - **Fairness metrics.** Show the boss a fairness dashboard (who got the most weekend shifts over time, etc.).
 
@@ -502,6 +542,7 @@ Use this to orient at the start of each session.
 | Availability tracking — dashboard | An **Availability** card (`AvailabilityCard`, expanded by default, collapsible) sits below the week card on `availability_open` / `availability_closed` / `draft` weeks — not `published`, not past. Two sections: **Waiting on (n)** (amber pills, or "Everyone has submitted") and **Submitted (n)** (green pills; clicking one opens `EmployeeAvailabilityModal`, a read-only 7×3 grid of that employee's ticked slots). "Submitted" = ≥1 ticked slot (sparse storage). Frontend-only, reuses `GET /weeks/:weekId/availability` + `GET /users` in a single fetch. |
 | Schedule health badge | Each `draft`/`published` week card shows a one-line coverage badge: green "Fully staffed" or amber "N open spots" (`open spots = Σ max(0, needed − assigned)` across the week's requirements). Frontend-only `ScheduleHealth` component (`DashboardPage.tsx`), mirrors `PendingAvailability` — fetches the week's assignments + requirements, no dedicated endpoint. Replaces the originally-planned `GET /weeks/:weekId/dashboard` (endpoint + `DashboardDto` removed as redundant with the Review modal). |
 | Past-week archival & freeze | Fully-elapsed weeks (see §3 "Elapsed weeks") are frozen. Backend: shared `shared/weekDates.ts` (`isPastWeek`/`isCurrentWeek`, 9 tests) + `409 WEEK_ENDED` guards on every mutation (assignments add/remove, requirements PUT, shift-counts PATCH, week status PATCH, week DELETE). Boss dashboard: past weeks hidden behind a "Show past weeks (N)" toggle, rendered read-only (`readOnly` prop — export only, badges suppressed). Employee home: past weeks not shown. |
+| Dynamic shifts — backend | Replaced the fixed `slot` enum with a per-week `Shift` entity (`name` + `startTime`). `Availability`/`ShiftRequirement`/`Assignment` reference `shiftId`; deleting a shift cascades. New per-shift CRUD route (`routes/shifts.ts`). Week creation seeds Morning/Evening defaults and copies shifts+requirements forward. Assigner sorts by `startTime` (no more `SLOT_ORDER`); export labels/orders rows from the shift rows. Data-preserving migration `20260726120000_dynamic_shifts` backfilled existing morning/mid/evening data into Shift rows. **Frontend still assumes the old fixed slots — a separate follow-up.** |
 | PDF export (HTML print) | `GET /weeks/:weekId/export.html` — any logged-in user, published-only. Pure `server/src/services/scheduleExport.ts` (`buildScheduleView` + `renderScheduleHtml`, 8 Vitest tests) shapes assignments into a days×slots grid and renders a standalone print-optimized page (role-colored name chips, landscape `@page`, print-color-adjust). Scrolls horizontally on phones, collapses to one page on print. Format→exporter registry; `export.pdf` stays a 501 stub reserved for a future binary. Boss dashboard shows a "Print / Export" link on published week cards; employees get a "Full view" button next to the My Shifts / Everyone toggle (both via `api.weeks.exportUrl`, open in a new tab). |
 
 ### ❌ Not yet built

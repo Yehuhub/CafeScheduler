@@ -4,8 +4,8 @@ import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
 import { runAssigner } from "../services/assigner";
 import { isPastWeek } from "../../../shared/weekDates";
-import { SLOTS, ROLES_WORKING } from "../../../shared/types";
-import type { AssignmentDto, Slot, RoleWorking, WeekStatus } from "../../../shared/types";
+import { ROLES_WORKING } from "../../../shared/types";
+import type { AssignmentDto, RoleWorking, WeekStatus } from "../../../shared/types";
 
 const router = Router();
 
@@ -14,7 +14,7 @@ function toAssignmentDto(row: {
   weekId: number;
   userId: number;
   day: number;
-  slot: string;
+  shiftId: number;
   roleWorking: string;
   createdAt: Date;
 }): AssignmentDto {
@@ -23,7 +23,7 @@ function toAssignmentDto(row: {
     weekId: row.weekId,
     userId: row.userId,
     day: row.day,
-    slot: row.slot as Slot,
+    shiftId: row.shiftId,
     roleWorking: row.roleWorking as RoleWorking,
     createdAt: row.createdAt.toISOString(),
   };
@@ -90,7 +90,10 @@ router.post(
       const [users, availability, requirements, shiftCounts, prevWeek] = await Promise.all([
         prisma.user.findMany({ where: { isActive: true, isDeleted: false } }),
         prisma.availability.findMany({ where: { weekId } }),
-        prisma.shiftRequirement.findMany({ where: { weekId } }),
+        prisma.shiftRequirement.findMany({
+          where: { weekId },
+          include: { shift: { select: { startTime: true } } },
+        }),
         prisma.weeklyShiftCount.findMany({ where: { weekId } }),
         // Previous week for weekend rotation — most recent non-deleted week before this one
         prisma.week.findFirst({
@@ -109,12 +112,13 @@ router.post(
         availability: availability.map((a) => ({
           userId: a.userId,
           day: a.day,
-          slot: a.slot as Slot,
+          shiftId: a.shiftId,
           available: a.available,
         })),
         requirements: requirements.map((r) => ({
           day: r.day,
-          slot: r.slot as Slot,
+          shiftId: r.shiftId,
+          startTime: r.shift.startTime,
           cooksNeeded: r.cooksNeeded,
           baristasNeeded: r.baristasNeeded,
         })),
@@ -138,7 +142,7 @@ router.post(
               weekId: a.weekId,
               userId: a.userId,
               day: a.day,
-              slot: a.slot,
+              shiftId: a.shiftId,
               roleWorking: a.roleWorking,
             })),
           });
@@ -159,7 +163,7 @@ router.post(
   }
 );
 
-// POST /weeks/:weekId/assignments  { userId, day, slot, roleWorking }  (boss only)
+// POST /weeks/:weekId/assignments  { userId, day, shiftId, roleWorking }  (boss only)
 // Manual override: enforces the hard invariants (role, no duplicate cell, no overstaffing)
 // but lets the boss override availability, weekly shift count, and same-day double-booking.
 router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req, res, next) => {
@@ -182,15 +186,15 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
       throw new HttpError(409, "This week has ended and can no longer be edited", "WEEK_ENDED");
     }
 
-    const { userId, day, slot, roleWorking } = req.body as Record<string, unknown>;
+    const { userId, day, shiftId, roleWorking } = req.body as Record<string, unknown>;
     if (typeof userId !== "number" || !Number.isInteger(userId)) {
       throw new HttpError(400, "userId must be an integer", "VALIDATION_ERROR");
     }
     if (typeof day !== "number" || !Number.isInteger(day) || day < 0 || day > 6) {
       throw new HttpError(400, "day must be an integer 0–6", "VALIDATION_ERROR");
     }
-    if (typeof slot !== "string" || !SLOTS.includes(slot as Slot)) {
-      throw new HttpError(400, `slot must be one of: ${SLOTS.join(", ")}`, "VALIDATION_ERROR");
+    if (typeof shiftId !== "number" || !Number.isInteger(shiftId)) {
+      throw new HttpError(400, "shiftId must be an integer", "VALIDATION_ERROR");
     }
     if (typeof roleWorking !== "string" || !ROLES_WORKING.includes(roleWorking as RoleWorking)) {
       throw new HttpError(
@@ -199,8 +203,11 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
         "VALIDATION_ERROR"
       );
     }
-    const validSlot = slot as Slot;
     const validRole = roleWorking as RoleWorking;
+
+    // The shift must belong to this week (also guards against cross-week ids).
+    const shift = await prisma.shift.findFirst({ where: { id: shiftId, weekId } });
+    if (!shift) throw new HttpError(400, "Shift not found for this week", "VALIDATION_ERROR");
 
     const user = await prisma.user.findUnique({
       where: { id: userId, isActive: true, isDeleted: false },
@@ -219,14 +226,14 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
     // Check-then-create atomically so a concurrent add can't exceed the cap.
     const assignment = await prisma.$transaction(async (tx) => {
       const duplicate = await tx.assignment.findFirst({
-        where: { weekId, userId, day, slot: validSlot },
+        where: { weekId, userId, day, shiftId },
       });
       if (duplicate) {
         throw new HttpError(409, "Already assigned to this slot", "INVALID_STATE");
       }
 
       const requirement = await tx.shiftRequirement.findUnique({
-        where: { weekId_day_slot: { weekId, day, slot: validSlot } },
+        where: { weekId_day_shiftId: { weekId, day, shiftId } },
       });
       const cap = requirement
         ? validRole === "cook"
@@ -234,14 +241,14 @@ router.post("/weeks/:weekId/assignments", requireLogin, requireBoss, async (req,
           : requirement.baristasNeeded
         : 0;
       const assigned = await tx.assignment.count({
-        where: { weekId, day, slot: validSlot, roleWorking: validRole },
+        where: { weekId, day, shiftId, roleWorking: validRole },
       });
       if (assigned >= cap) {
         throw new HttpError(409, "Slot is already fully staffed", "INVALID_STATE");
       }
 
       return tx.assignment.create({
-        data: { weekId, userId, day, slot: validSlot, roleWorking: validRole },
+        data: { weekId, userId, day, shiftId, roleWorking: validRole },
       });
     });
 

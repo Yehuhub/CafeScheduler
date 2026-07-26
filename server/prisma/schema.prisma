@@ -40,6 +40,24 @@ model Week {
   shiftRequirements ShiftRequirement[]
   weeklyShiftCounts WeeklyShiftCount[]
   assignments       Assignment[]
+  shifts            Shift[]
+}
+
+// A named, boss-defined shift within a week (e.g. "Morning" 06:00, "Mid Evening" 15:00).
+// Replaces the old fixed slot enum. Deleting a shift cascades to its requirements,
+// availability, and assignments — the intended behavior when the boss removes a shift.
+model Shift {
+  id        Int    @id @default(autoincrement())
+  weekId    Int
+  name      String
+  startTime String // "HH:MM"
+
+  week             Week               @relation(fields: [weekId], references: [id])
+  requirements     ShiftRequirement[]
+  availability     Availability[]
+  assignments      Assignment[]
+
+  @@unique([weekId, name])
 }
 
 model Availability {
@@ -47,26 +65,28 @@ model Availability {
   weekId    Int
   userId    Int
   day       Int     // 0–6, Sunday = 0
-  slot      String  // Slot: "morning" | "mid" | "evening"
+  shiftId   Int
   available Boolean
 
-  week Week @relation(fields: [weekId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  week  Week  @relation(fields: [weekId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
-  @@unique([weekId, userId, day, slot])
+  @@unique([weekId, userId, day, shiftId])
 }
 
 model ShiftRequirement {
   id             Int    @id @default(autoincrement())
   weekId         Int
   day            Int
-  slot           String // Slot: "morning" | "mid" | "evening"
+  shiftId        Int
   cooksNeeded    Int
   baristasNeeded Int
 
-  week Week @relation(fields: [weekId], references: [id])
+  week  Week  @relation(fields: [weekId], references: [id])
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
-  @@unique([weekId, day, slot])
+  @@unique([weekId, day, shiftId])
 }
 
 model WeeklyShiftCount {
@@ -86,10 +106,11 @@ model Assignment {
   weekId      Int
   userId      Int
   day         Int
-  slot        String   // Slot: "morning" | "mid" | "evening"
+  shiftId     Int
   roleWorking String   // RoleWorking: "cook" | "barista"
   createdAt   DateTime @default(now())
 
-  week Week @relation(fields: [weekId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  week  Week  @relation(fields: [weekId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 }

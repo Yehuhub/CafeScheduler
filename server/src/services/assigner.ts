@@ -2,7 +2,7 @@
 // All time-dependent and DB-sourced data is passed in as plain objects.
 // See DESIGN.md §4 for the full algorithm spec.
 
-import type { Slot, RoleWorking } from "../../../shared/types";
+import type { RoleWorking } from "../../../shared/types";
 
 export interface AssignerUser {
   id: number;
@@ -13,13 +13,14 @@ export interface AssignerUser {
 export interface AssignerAvailability {
   userId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   available: boolean;
 }
 
 export interface AssignerShiftRequirement {
   day: number;
-  slot: Slot;
+  shiftId: number;
+  startTime: string; // "HH:MM" — drives the scarcity-sort tiebreak (replaces the old SLOT_ORDER)
   cooksNeeded: number;
   baristasNeeded: number;
 }
@@ -47,7 +48,7 @@ export interface AssignerOutputAssignment {
   weekId: number;
   userId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   roleWorking: RoleWorking;
 }
 
@@ -55,19 +56,18 @@ export interface AssignerOutput {
   assignments: AssignerOutputAssignment[];
 }
 
-// Internal type for an expanded "head" to fill
-type SlotInstance = { day: number; slot: Slot; role: RoleWorking };
-
-const SLOT_ORDER: Record<Slot, number> = { morning: 0, mid: 1, evening: 2 };
+// Internal type for an expanded "head" to fill. `startTime` is carried so the scarcity
+// sort has a stable, chronological tiebreak across dynamically-named shifts.
+type SlotInstance = { day: number; shiftId: number; startTime: string; role: RoleWorking };
 
 export function runAssigner(input: AssignerInput): AssignerOutput {
   const { weekId, users, availability, requirements, shiftCounts, prevWeekAssignments } = input;
 
   // ── Precompute lookups ────────────────────────────────────────────────────
 
-  // Fast availability check: "userId-day-slot"
+  // Fast availability check: "userId-day-shiftId"
   const availSet = new Set<string>(
-    availability.filter((a) => a.available).map((a) => `${a.userId}-${a.day}-${a.slot}`)
+    availability.filter((a) => a.available).map((a) => `${a.userId}-${a.day}-${a.shiftId}`)
   );
 
   // Users absent from shiftCounts get an implicit cap of 0 (not schedulable this week)
@@ -93,10 +93,10 @@ export function runAssigner(input: AssignerInput): AssignerOutput {
 
   // Scarcity = # users who have the role AND appear in availSet for (day, slot).
   // Computed on raw availability — does not reflect current assignment state.
-  function countQualified(day: number, slot: Slot, role: RoleWorking): number {
+  function countQualified(day: number, shiftId: number, role: RoleWorking): number {
     return users.filter((u) => {
       const hasRole = role === "cook" ? u.isCook : u.isBarista;
-      return hasRole && availSet.has(`${u.id}-${day}-${slot}`);
+      return hasRole && availSet.has(`${u.id}-${day}-${shiftId}`);
     }).length;
   }
 
@@ -105,7 +105,7 @@ export function runAssigner(input: AssignerInput): AssignerOutput {
     return users.filter((u) => {
       const hasRole = inst.role === "cook" ? u.isCook : u.isBarista;
       if (!hasRole) return false;
-      if (!availSet.has(`${u.id}-${inst.day}-${inst.slot}`)) return false;
+      if (!availSet.has(`${u.id}-${inst.day}-${inst.shiftId}`)) return false;
       if (daysUsed.get(u.id)!.has(inst.day)) return false; // day-uniqueness (constraint 4)
       const cap = shiftCap.get(u.id) ?? 0;
       return (assignedCount.get(u.id) ?? 0) < cap;
@@ -151,7 +151,7 @@ export function runAssigner(input: AssignerInput): AssignerOutput {
   }
 
   function doAssign(u: AssignerUser, inst: SlotInstance): void {
-    output.push({ weekId, userId: u.id, day: inst.day, slot: inst.slot, roleWorking: inst.role });
+    output.push({ weekId, userId: u.id, day: inst.day, shiftId: inst.shiftId, roleWorking: inst.role });
     assignedCount.set(u.id, (assignedCount.get(u.id) ?? 0) + 1);
     if (inst.day >= 5) weekendCount.set(u.id, (weekendCount.get(u.id) ?? 0) + 1);
     daysUsed.get(u.id)!.add(inst.day);
@@ -163,23 +163,24 @@ export function runAssigner(input: AssignerInput): AssignerOutput {
   const slotInstances: SlotInstance[] = [];
   for (const req of requirements) {
     for (let i = 0; i < req.cooksNeeded; i++) {
-      slotInstances.push({ day: req.day, slot: req.slot, role: "cook" });
+      slotInstances.push({ day: req.day, shiftId: req.shiftId, startTime: req.startTime, role: "cook" });
     }
     for (let i = 0; i < req.baristasNeeded; i++) {
-      slotInstances.push({ day: req.day, slot: req.slot, role: "barista" });
+      slotInstances.push({ day: req.day, shiftId: req.shiftId, startTime: req.startTime, role: "barista" });
     }
   }
 
   // ── 2. Static scarcity sort ───────────────────────────────────────────────
-  // Tiebreak: day asc, slot order, cook before barista.
+  // Tiebreak: day asc, shift start time, shiftId, cook before barista.
 
   slotInstances.sort((a, b) => {
     const scarDiff =
-      countQualified(a.day, a.slot, a.role) - countQualified(b.day, b.slot, b.role);
+      countQualified(a.day, a.shiftId, a.role) - countQualified(b.day, b.shiftId, b.role);
     if (scarDiff !== 0) return scarDiff;
     if (a.day !== b.day) return a.day - b.day;
-    const slotDiff = SLOT_ORDER[a.slot] - SLOT_ORDER[b.slot];
-    if (slotDiff !== 0) return slotDiff;
+    const timeDiff = a.startTime.localeCompare(b.startTime);
+    if (timeDiff !== 0) return timeDiff;
+    if (a.shiftId !== b.shiftId) return a.shiftId - b.shiftId;
     return a.role === b.role ? 0 : a.role === "cook" ? -1 : 1;
   });
 

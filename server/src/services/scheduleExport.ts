@@ -2,8 +2,7 @@
 // The route gathers DB rows and passes plain objects in; these shape and render them.
 // Rendered HTML is opened directly in a browser tab for print-to-PDF (DESIGN.md §6).
 
-import { SLOTS } from "../../../shared/types";
-import type { Slot, RoleWorking } from "../../../shared/types";
+import type { RoleWorking } from "../../../shared/types";
 
 export type ExportFormat = "html" | "pdf";
 
@@ -12,15 +11,21 @@ interface CellPerson {
   role: RoleWorking;
 }
 
+interface ScheduleShift {
+  id: number;
+  name: string;
+}
+
 export interface ScheduleView {
   weekStartDate: string; // ISO date string, supplied by the caller
-  slots: Slot[]; // only slots that have at least one assignment, in SLOTS order
-  cells: Record<string, CellPerson[]>; // key `${day}-${slot}`
+  shifts: ScheduleShift[]; // only shifts with at least one assignment, ordered by startTime
+  cells: Record<string, CellPerson[]>; // key `${day}-${shiftId}`
 }
 
 export interface BuildScheduleViewInput {
   weekStartDate: string;
-  assignments: Array<{ userId: number; day: number; slot: Slot; roleWorking: RoleWorking }>;
+  shifts: Array<{ id: number; name: string; startTime: string }>;
+  assignments: Array<{ userId: number; day: number; shiftId: number; roleWorking: RoleWorking }>;
   names: Map<number, string>;
 }
 
@@ -28,26 +33,25 @@ const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 // Server has no i18next — English-only per DESIGN.md §6. Hebrew/RTL is future work.
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const SLOT_LABELS: Record<Slot, string> = {
-  morning: "Morning",
-  mid: "Mid",
-  evening: "Evening",
-};
 
-function cellKey(day: number, slot: Slot): string {
-  return `${day}-${slot}`;
+function cellKey(day: number, shiftId: number): string {
+  return `${day}-${shiftId}`;
 }
 
 export function buildScheduleView(input: BuildScheduleViewInput): ScheduleView {
-  const { assignments, names } = input;
+  const { shifts: allShifts, assignments, names } = input;
 
-  // Only keep slots that actually have assignments, in canonical SLOTS order
-  // (mirrors the employee "Everyone" view).
-  const slots = SLOTS.filter((slot) => assignments.some((a) => a.slot === slot));
+  // Only keep shifts that actually have assignments, ordered chronologically by
+  // startTime (mirrors the employee "Everyone" view).
+  const usedShiftIds = new Set(assignments.map((a) => a.shiftId));
+  const shifts = [...allShifts]
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.id - b.id)
+    .filter((s) => usedShiftIds.has(s.id))
+    .map((s) => ({ id: s.id, name: s.name }));
 
   const cells: Record<string, CellPerson[]> = {};
   for (const a of assignments) {
-    const key = cellKey(a.day, a.slot);
+    const key = cellKey(a.day, a.shiftId);
     (cells[key] ??= []).push({
       name: names.get(a.userId) ?? `#${a.userId}`,
       role: a.roleWorking,
@@ -61,7 +65,7 @@ export function buildScheduleView(input: BuildScheduleViewInput): ScheduleView {
     );
   }
 
-  return { weekStartDate: input.weekStartDate, slots, cells };
+  return { weekStartDate: input.weekStartDate, shifts, cells };
 }
 
 function escapeHtml(s: string): string {
@@ -85,10 +89,10 @@ function formatDate(iso: string): string {
 export function renderScheduleHtml(view: ScheduleView): string {
   const dateLabel = formatDate(view.weekStartDate);
 
-  const bodyRows = view.slots
-    .map((slot) => {
+  const bodyRows = view.shifts
+    .map((shift) => {
       const cells = DAYS.map((day) => {
-        const people = view.cells[cellKey(day, slot)] ?? [];
+        const people = view.cells[cellKey(day, shift.id)] ?? [];
         const chips = people
           .map(
             (p) =>
@@ -99,7 +103,7 @@ export function renderScheduleHtml(view: ScheduleView): string {
           .join("");
         return `<td>${chips}</td>`;
       }).join("");
-      return `<tr><th class="slot">${SLOT_LABELS[slot]}</th>${cells}</tr>`;
+      return `<tr><th class="slot">${escapeHtml(shift.name)}</th>${cells}</tr>`;
     })
     .join("");
 

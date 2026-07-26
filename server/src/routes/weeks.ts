@@ -9,7 +9,7 @@ import { isValidTransition, wipesAssignments } from "../services/weekState";
 import { isPastWeek } from "../../../shared/weekDates";
 import { buildScheduleView, exporters } from "../services/scheduleExport";
 import type { ExportFormat } from "../services/scheduleExport";
-import type { WeekDto, WeekStatus, Slot, RoleWorking } from "../../../shared/types";
+import type { WeekDto, WeekStatus, RoleWorking } from "../../../shared/types";
 
 const router = Router();
 
@@ -176,28 +176,56 @@ router.post("/", requireLogin, requireBoss, async (req, res, next) => {
         data: { startDate, status: "availability_open" },
       });
 
-      // Copy ShiftRequirements from the previous non-deleted week.
-      // If no previous week exists (or it had no requirements), seed a default
-      // template: 1 cook + 1 barista for morning and evening on every day.
-      const prevReqs = lastWeek
-        ? await tx.shiftRequirement.findMany({ where: { weekId: lastWeek.id } })
+      // Copy the previous non-deleted week's Shifts + ShiftRequirements forward.
+      // If no previous week exists (or it defined no shifts), seed a default template:
+      // Morning (06:00) and Evening (13:00), 1 cook + 1 barista on every day.
+      const prevShifts = lastWeek
+        ? await tx.shift.findMany({ where: { weekId: lastWeek.id } })
         : [];
 
-      const reqsToSeed =
-        prevReqs.length > 0
-          ? prevReqs.map((r) => ({
+      if (prevShifts.length > 0) {
+        // Recreate the shifts for the new week, then remap requirements onto the new ids.
+        // (weekId, name) is unique, so name is a safe old→new join key.
+        await tx.shift.createMany({
+          data: prevShifts.map((s) => ({
+            weekId: newWeek.id,
+            name: s.name,
+            startTime: s.startTime,
+          })),
+        });
+        const newShifts = await tx.shift.findMany({ where: { weekId: newWeek.id } });
+        const newIdByName = new Map(newShifts.map((s) => [s.name, s.id]));
+        const oldNameById = new Map(prevShifts.map((s) => [s.id, s.name]));
+
+        const prevReqs = await tx.shiftRequirement.findMany({
+          where: { weekId: lastWeek!.id },
+        });
+        if (prevReqs.length > 0) {
+          await tx.shiftRequirement.createMany({
+            data: prevReqs.map((r) => ({
               weekId: newWeek.id,
               day: r.day,
-              slot: r.slot,
+              shiftId: newIdByName.get(oldNameById.get(r.shiftId)!)!,
               cooksNeeded: r.cooksNeeded,
               baristasNeeded: r.baristasNeeded,
-            }))
-          : [0, 1, 2, 3, 4, 5, 6].flatMap((day) => [
-              { weekId: newWeek.id, day, slot: "morning", cooksNeeded: 1, baristasNeeded: 1 },
-              { weekId: newWeek.id, day, slot: "evening", cooksNeeded: 1, baristasNeeded: 1 },
-            ]);
-
-      await tx.shiftRequirement.createMany({ data: reqsToSeed });
+            })),
+          });
+        }
+      } else {
+        await tx.shift.createMany({
+          data: [
+            { weekId: newWeek.id, name: "Morning", startTime: "06:00" },
+            { weekId: newWeek.id, name: "Evening", startTime: "13:00" },
+          ],
+        });
+        const newShifts = await tx.shift.findMany({ where: { weekId: newWeek.id } });
+        const idByName = new Map(newShifts.map((s) => [s.name, s.id]));
+        const reqsToSeed = [0, 1, 2, 3, 4, 5, 6].flatMap((day) => [
+          { weekId: newWeek.id, day, shiftId: idByName.get("Morning")!, cooksNeeded: 1, baristasNeeded: 1 },
+          { weekId: newWeek.id, day, shiftId: idByName.get("Evening")!, cooksNeeded: 1, baristasNeeded: 1 },
+        ]);
+        await tx.shiftRequirement.createMany({ data: reqsToSeed });
+      }
 
       const activeUsers = await tx.user.findMany({
         where: { isActive: true, isDeleted: false },
@@ -327,7 +355,10 @@ function makeExportHandler(format: ExportFormat): RequestHandler {
         );
       }
 
-      const rows = await prisma.assignment.findMany({ where: { weekId } });
+      const [rows, shifts] = await Promise.all([
+        prisma.assignment.findMany({ where: { weekId } }),
+        prisma.shift.findMany({ where: { weekId }, select: { id: true, name: true, startTime: true } }),
+      ]);
       // Include soft-deleted users — historical shifts keep their name.
       const assigneeIds = [...new Set(rows.map((r) => r.userId))];
       const assignees = assigneeIds.length
@@ -339,10 +370,11 @@ function makeExportHandler(format: ExportFormat): RequestHandler {
 
       const view = buildScheduleView({
         weekStartDate: week.startDate.toISOString(),
+        shifts,
         assignments: rows.map((r) => ({
           userId: r.userId,
           day: r.day,
-          slot: r.slot as Slot,
+          shiftId: r.shiftId,
           roleWorking: r.roleWorking as RoleWorking,
         })),
         names: new Map(assignees.map((a) => [a.id, a.name])),

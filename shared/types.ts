@@ -7,9 +7,6 @@ export type WeekStatus =
   | "availability_closed"
   | "draft"
   | "published";
-export const SLOTS = ["morning", "mid", "evening"] as const;
-export type Slot = (typeof SLOTS)[number];
-
 export const ROLES_WORKING = ["cook", "barista"] as const;
 export type RoleWorking = (typeof ROLES_WORKING)[number];
 
@@ -35,12 +32,21 @@ export interface WeekDto {
   publishedAt: string | null;
 }
 
+// A boss-defined named shift within a week. `startTime` is "HH:MM" and drives the
+// chronological ordering of shifts in grids and the exported schedule.
+export interface ShiftDto {
+  id: number;
+  weekId: number;
+  name: string;
+  startTime: string;
+}
+
 export interface AvailabilityDto {
   id: number;
   weekId: number;
   userId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   available: boolean;
 }
 
@@ -48,7 +54,7 @@ export interface ShiftRequirementDto {
   id: number;
   weekId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   cooksNeeded: number;
   baristasNeeded: number;
 }
@@ -65,7 +71,7 @@ export interface AssignmentDto {
   weekId: number;
   userId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   roleWorking: RoleWorking;
   createdAt: string;
 }
