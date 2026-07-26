@@ -2,6 +2,12 @@ import { describe, it, expect } from "vitest";
 import { runAssigner } from "../../src/services/assigner";
 import type { AssignerInput, AssignerOutputAssignment } from "../../src/services/assigner";
 
+// ── Shift fixtures ──────────────────────────────────────────────────────────
+// Named shifts are now dynamic per week; tests use fixed ids + start times.
+// Start time drives the scarcity-sort tiebreak (replaces the old fixed SLOT_ORDER).
+const MORNING = { id: 1, startTime: "06:00" };
+const EVENING = { id: 3, startTime: "13:00" };
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeInput(overrides: Partial<AssignerInput> = {}): AssignerInput {
@@ -16,9 +22,19 @@ function makeInput(overrides: Partial<AssignerInput> = {}): AssignerInput {
   };
 }
 
+/** Shorthand: a shift requirement for one day. */
+function req(
+  day: number,
+  shift: { id: number; startTime: string },
+  cooksNeeded: number,
+  baristasNeeded: number
+) {
+  return { day, shiftId: shift.id, startTime: shift.startTime, cooksNeeded, baristasNeeded };
+}
+
 /** Shorthand: produce an available=true availability entry */
-function avail(userId: number, day: number, slot: "morning" | "mid" | "evening") {
-  return { userId, day, slot, available: true };
+function avail(userId: number, day: number, shift: { id: number }) {
+  return { userId, day, shiftId: shift.id, available: true };
 }
 
 function assignmentsFor(
@@ -38,8 +54,8 @@ describe("runAssigner", () => {
         { id: 1, isCook: true, isBarista: false },
         { id: 2, isCook: false, isBarista: true },
       ],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 1 }],
-      availability: [avail(1, 0, "morning"), avail(2, 0, "morning")],
+      requirements: [req(0, MORNING, 1, 1)],
+      availability: [avail(1, 0, MORNING), avail(2, 0, MORNING)],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
         { userId: 2, shiftsThisWeek: 3 },
@@ -54,15 +70,15 @@ describe("runAssigner", () => {
     expect(cook?.userId).toBe(1);
     expect(barista?.userId).toBe(2);
     expect(cook?.day).toBe(0);
-    expect(cook?.slot).toBe("morning");
+    expect(cook?.shiftId).toBe(MORNING.id);
   });
 
   // 2. Understaffing
   it("assigns fewer than needed without throwing when supply is short", () => {
     const input = makeInput({
       users: [{ id: 1, isCook: true, isBarista: false }],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 2, baristasNeeded: 0 }],
-      availability: [avail(1, 0, "morning")],
+      requirements: [req(0, MORNING, 2, 0)],
+      availability: [avail(1, 0, MORNING)],
       shiftCounts: [{ userId: 1, shiftsThisWeek: 5 }],
     });
 
@@ -77,11 +93,8 @@ describe("runAssigner", () => {
   it("never assigns the same person to more than one slot on the same day", () => {
     const input = makeInput({
       users: [{ id: 1, isCook: true, isBarista: false }],
-      requirements: [
-        { day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 },
-        { day: 0, slot: "evening", cooksNeeded: 1, baristasNeeded: 0 },
-      ],
-      availability: [avail(1, 0, "morning"), avail(1, 0, "evening")],
+      requirements: [req(0, MORNING, 1, 0), req(0, EVENING, 1, 0)],
+      availability: [avail(1, 0, MORNING), avail(1, 0, EVENING)],
       shiftCounts: [{ userId: 1, shiftsThisWeek: 5 }],
     });
 
@@ -96,11 +109,8 @@ describe("runAssigner", () => {
   it("does not schedule a user beyond their WeeklyShiftCount cap", () => {
     const input = makeInput({
       users: [{ id: 1, isCook: true, isBarista: false }],
-      requirements: [
-        { day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 },
-        { day: 1, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 },
-      ],
-      availability: [avail(1, 0, "morning"), avail(1, 1, "morning")],
+      requirements: [req(0, MORNING, 1, 0), req(1, MORNING, 1, 0)],
+      availability: [avail(1, 0, MORNING), avail(1, 1, MORNING)],
       shiftCounts: [{ userId: 1, shiftsThisWeek: 1 }],
     });
 
@@ -113,8 +123,8 @@ describe("runAssigner", () => {
   it("never schedules a user whose shiftsThisWeek is 0", () => {
     const input = makeInput({
       users: [{ id: 1, isCook: true, isBarista: false }],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
-      availability: [avail(1, 0, "morning")],
+      requirements: [req(0, MORNING, 1, 0)],
+      availability: [avail(1, 0, MORNING)],
       shiftCounts: [{ userId: 1, shiftsThisWeek: 0 }],
     });
 
@@ -127,8 +137,8 @@ describe("runAssigner", () => {
   it("never schedules a user who has no WeeklyShiftCount row", () => {
     const input = makeInput({
       users: [{ id: 1, isCook: true, isBarista: false }],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
-      availability: [avail(1, 0, "morning")],
+      requirements: [req(0, MORNING, 1, 0)],
+      availability: [avail(1, 0, MORNING)],
       shiftCounts: [], // no row for user 1
     });
 
@@ -145,8 +155,8 @@ describe("runAssigner", () => {
         { id: 1, isCook: true, isBarista: false }, // pure cook
         { id: 2, isCook: true, isBarista: true },  // dual
       ],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
-      availability: [avail(1, 0, "morning"), avail(2, 0, "morning")],
+      requirements: [req(0, MORNING, 1, 0)],
+      availability: [avail(1, 0, MORNING), avail(2, 0, MORNING)],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
         { userId: 2, shiftsThisWeek: 3 },
@@ -168,8 +178,8 @@ describe("runAssigner", () => {
         { id: 1, isCook: true, isBarista: false },
         { id: 2, isCook: true, isBarista: false },
       ],
-      requirements: [{ day: 5, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
-      availability: [avail(1, 5, "morning"), avail(2, 5, "morning")],
+      requirements: [req(5, MORNING, 1, 0)],
+      availability: [avail(1, 5, MORNING), avail(2, 5, MORNING)],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
         { userId: 2, shiftsThisWeek: 3 },
@@ -194,13 +204,10 @@ describe("runAssigner", () => {
         { id: 1, isCook: true, isBarista: false },
         { id: 2, isCook: true, isBarista: false },
       ],
-      requirements: [
-        { day: 5, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 },
-        { day: 6, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 },
-      ],
+      requirements: [req(5, MORNING, 1, 0), req(6, MORNING, 1, 0)],
       availability: [
-        avail(1, 5, "morning"), avail(2, 5, "morning"),
-        avail(1, 6, "morning"), avail(2, 6, "morning"),
+        avail(1, 5, MORNING), avail(2, 5, MORNING),
+        avail(1, 6, MORNING), avail(2, 6, MORNING),
       ],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
@@ -224,11 +231,11 @@ describe("runAssigner", () => {
         { id: 2, isCook: true, isBarista: false },
         { id: 3, isCook: true, isBarista: false },
       ],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
+      requirements: [req(0, MORNING, 1, 0)],
       availability: [
-        avail(1, 0, "morning"),
-        avail(2, 0, "morning"),
-        avail(3, 0, "morning"),
+        avail(1, 0, MORNING),
+        avail(2, 0, MORNING),
+        avail(3, 0, MORNING),
       ],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
@@ -242,7 +249,27 @@ describe("runAssigner", () => {
     expect(assignments).toHaveLength(1); // exactly cooksNeeded=1, never more
   });
 
-  // 8a. Determinism: same input → identical output on repeated runs
+  // 8. Dynamic-shift ordering: with equal scarcity, the earlier-startTime shift is
+  //    filled first (replaces the old fixed morning<mid<evening SLOT_ORDER).
+  it("fills the earlier-startTime shift first when scarcity ties", () => {
+    const EARLY = { id: 7, startTime: "08:00" };
+    const LATE = { id: 8, startTime: "09:00" };
+    // One user, eligible for both same-day shifts, each needs 1 cook. Day-uniqueness
+    // allows only one assignment — it should land on the earlier shift.
+    const input = makeInput({
+      users: [{ id: 1, isCook: true, isBarista: false }],
+      requirements: [req(0, LATE, 1, 0), req(0, EARLY, 1, 0)],
+      availability: [avail(1, 0, EARLY), avail(1, 0, LATE)],
+      shiftCounts: [{ userId: 1, shiftsThisWeek: 5 }],
+    });
+
+    const { assignments } = runAssigner(input);
+
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].shiftId).toBe(EARLY.id);
+  });
+
+  // 9a. Determinism: same input → identical output on repeated runs
   it("produces identical output on every run with the same input", () => {
     const input = makeInput({
       users: [
@@ -251,14 +278,14 @@ describe("runAssigner", () => {
         { id: 3, isCook: true, isBarista: true },
       ],
       requirements: [
-        { day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 1 },
-        { day: 1, slot: "evening", cooksNeeded: 1, baristasNeeded: 0 },
-        { day: 5, slot: "morning", cooksNeeded: 1, baristasNeeded: 1 },
+        req(0, MORNING, 1, 1),
+        req(1, EVENING, 1, 0),
+        req(5, MORNING, 1, 1),
       ],
       availability: [
-        avail(1, 0, "morning"), avail(2, 0, "morning"), avail(3, 0, "morning"),
-        avail(1, 1, "evening"), avail(3, 1, "evening"),
-        avail(1, 5, "morning"), avail(2, 5, "morning"), avail(3, 5, "morning"),
+        avail(1, 0, MORNING), avail(2, 0, MORNING), avail(3, 0, MORNING),
+        avail(1, 1, EVENING), avail(3, 1, EVENING),
+        avail(1, 5, MORNING), avail(2, 5, MORNING), avail(3, 5, MORNING),
       ],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
@@ -274,7 +301,7 @@ describe("runAssigner", () => {
     expect(first.assignments).toEqual(second.assignments);
   });
 
-  // 8b. userId tiebreaker: when scores are equal, lowest userId always wins
+  // 9b. userId tiebreaker: when scores are equal, lowest userId always wins
   it("picks the lowest userId when all scores are tied", () => {
     // Users provided in non-id order to verify the tiebreak is on id, not array index
     const input = makeInput({
@@ -283,11 +310,11 @@ describe("runAssigner", () => {
         { id: 1, isCook: true, isBarista: false },
         { id: 2, isCook: true, isBarista: false },
       ],
-      requirements: [{ day: 0, slot: "morning", cooksNeeded: 1, baristasNeeded: 0 }],
+      requirements: [req(0, MORNING, 1, 0)],
       availability: [
-        avail(1, 0, "morning"),
-        avail(2, 0, "morning"),
-        avail(3, 0, "morning"),
+        avail(1, 0, MORNING),
+        avail(2, 0, MORNING),
+        avail(3, 0, MORNING),
       ],
       shiftCounts: [
         { userId: 1, shiftsThisWeek: 3 },
