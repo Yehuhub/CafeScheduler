@@ -1,18 +1,21 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import BossNav from "../components/BossNav";
 import ReviewScheduleModal from "../components/ReviewScheduleModal";
 import { api } from "../api";
 import { isPastWeek, weekStartOf } from "@shared/weekDates";
-import { SLOTS } from "@shared/types";
-import type { WeekDto, WeekStatus, Slot, UserDto, AvailabilityDto } from "@shared/types";
+import type { WeekDto, WeekStatus, UserDto, AvailabilityDto, ShiftDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
-function cellKey(day: number, slot: string): string {
-  return `${day}-${slot}`;
+function cellKey(day: number, shiftId: number): string {
+  return `${day}-${shiftId}`;
+}
+
+function byStartTime(a: ShiftDto, b: ShiftDto): number {
+  return a.startTime.localeCompare(b.startTime) || a.id - b.id;
 }
 
 function isoDay(d: Date): string {
@@ -220,30 +223,141 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
 type CellCounts = { cooksNeeded: number; baristasNeeded: number };
 type CellState = Record<string, CellCounts>;
 
+// One shift's header row: name + start time, with inline rename/retime and delete.
+function ShiftHeader({
+  shift,
+  busy,
+  onUpdate,
+  onDelete,
+}: {
+  shift: ShiftDto;
+  busy: boolean;
+  onUpdate: (patch: { name?: string; startTime?: string }) => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [name, setName] = useState(shift.name);
+  const [startTime, setStartTime] = useState(shift.startTime);
+
+  if (editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-32 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+        />
+        <input
+          type="time"
+          value={startTime}
+          onChange={(e) => setStartTime(e.target.value)}
+          className="rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+        />
+        <button
+          type="button"
+          disabled={busy || name.trim() === ""}
+          onClick={async () => {
+            await onUpdate({ name: name.trim(), startTime });
+            setEditing(false);
+          }}
+          className="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {t("common.save")}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setName(shift.name);
+            setStartTime(shift.startTime);
+            setEditing(false);
+          }}
+          className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+        >
+          {t("common.cancel")}
+        </button>
+      </div>
+    );
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-amber-700">{t("requirements.deleteShiftWarning")}</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            await onDelete();
+            setConfirming(false);
+          }}
+          className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {t("requirements.deleteShift")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+        >
+          {t("common.cancel")}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+        {shift.name}
+      </span>
+      <span className="text-xs text-gray-400">{shift.startTime}</span>
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label={t("common.edit")}
+        className="text-xs text-gray-400 hover:text-indigo-600"
+      >
+        ✎
+      </button>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        aria-label={t("requirements.deleteShift")}
+        className="text-xs text-gray-400 hover:text-red-600"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => void }) {
   const { t } = useTranslation();
+  const [shifts, setShifts] = useState<ShiftDto[]>([]);
   const [cells, setCells] = useState<CellState>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Shift add form + in-flight guard/error for shift CRUD (which hits the API immediately).
+  const [newName, setNewName] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [shiftBusy, setShiftBusy] = useState(false);
+  const [shiftError, setShiftError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.requirements
-      .get(week.id)
-      .then(({ requirements }) => {
+    Promise.all([api.shifts.get(week.id), api.requirements.get(week.id)])
+      .then(([{ shifts }, { requirements }]) => {
         const initial: CellState = {};
         for (const r of requirements) {
-          initial[cellKey(r.day, r.slot)] = {
+          initial[cellKey(r.day, r.shiftId)] = {
             cooksNeeded: r.cooksNeeded,
             baristasNeeded: r.baristasNeeded,
           };
         }
-        // Morning and evening always present; mid only if a row existed
-        for (const day of DAYS) {
-          if (!initial[cellKey(day, "morning")]) initial[cellKey(day, "morning")] = { cooksNeeded: 1, baristasNeeded: 1 };
-          if (!initial[cellKey(day, "evening")]) initial[cellKey(day, "evening")] = { cooksNeeded: 1, baristasNeeded: 1 };
-        }
+        setShifts([...shifts].sort(byStartTime));
         setCells(initial);
       })
       .catch(() => setLoadError(t("requirements.loadError")))
@@ -251,32 +365,82 @@ function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => vo
   }, [week.id, t]);
 
   const updateCount = (key: string, field: keyof CellCounts, value: number) => {
-    setCells((prev) => ({ ...prev, [key]: { ...prev[key], [field]: Math.max(0, value) } }));
+    setCells((prev) => ({
+      ...prev,
+      [key]: {
+        cooksNeeded: prev[key]?.cooksNeeded ?? 0,
+        baristasNeeded: prev[key]?.baristasNeeded ?? 0,
+        [field]: Math.max(0, value),
+      },
+    }));
   };
 
-  const toggleMid = (day: number, on: boolean) => {
-    const key = cellKey(day, "mid");
-    setCells((prev) => {
-      const next = { ...prev };
-      if (on) {
-        next[key] = { cooksNeeded: 0, baristasNeeded: 0 };
-      } else {
-        delete next[key];
-      }
-      return next;
-    });
+  const handleAddShift = async () => {
+    setShiftError(null);
+    setShiftBusy(true);
+    try {
+      const { shift } = await api.shifts.create(week.id, {
+        name: newName.trim(),
+        startTime: newTime,
+      });
+      setShifts((prev) => [...prev, shift].sort(byStartTime));
+      setNewName("");
+      setNewTime("");
+    } catch (err) {
+      setShiftError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setShiftBusy(false);
+    }
+  };
+
+  const handleUpdateShift = async (id: number, patch: { name?: string; startTime?: string }) => {
+    setShiftError(null);
+    setShiftBusy(true);
+    try {
+      const { shift } = await api.shifts.update(week.id, id, patch);
+      setShifts((prev) => prev.map((s) => (s.id === id ? shift : s)).sort(byStartTime));
+    } catch (err) {
+      setShiftError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setShiftBusy(false);
+    }
+  };
+
+  // Deleting a shift cascades server-side; drop it and its cells so Save never
+  // references a removed shiftId.
+  const handleDeleteShift = async (id: number) => {
+    setShiftError(null);
+    setShiftBusy(true);
+    try {
+      await api.shifts.remove(week.id, id);
+      setShifts((prev) => prev.filter((s) => s.id !== id));
+      setCells((prev) => {
+        const next: CellState = {};
+        for (const [key, counts] of Object.entries(prev)) {
+          if (!key.endsWith(`-${id}`)) next[key] = counts;
+        }
+        return next;
+      });
+    } catch (err) {
+      setShiftError(err instanceof Error ? err.message : t("common.unknownError"));
+    } finally {
+      setShiftBusy(false);
+    }
   };
 
   const handleSave = async () => {
     setSaveError(null);
     setSubmitting(true);
     try {
-      const entries = Object.entries(cells).map(([key, counts]) => {
-        const dashIdx = key.indexOf("-");
-        const day = parseInt(key.slice(0, dashIdx), 10);
-        const slot = key.slice(dashIdx + 1) as Slot;
-        return { day, slot, ...counts };
-      });
+      // A shift "attaches" to a day only where it has a non-zero need, so we send
+      // only those cells (mirrors the backend's per-(shift,day) requirement rows).
+      const entries = shifts.flatMap((shift) =>
+        DAYS.flatMap((day) => {
+          const c = cells[cellKey(day, shift.id)];
+          if (!c || (c.cooksNeeded === 0 && c.baristasNeeded === 0)) return [];
+          return [{ day, shiftId: shift.id, cooksNeeded: c.cooksNeeded, baristasNeeded: c.baristasNeeded }];
+        })
+      );
       await api.requirements.put(week.id, entries);
       onClose();
     } catch (err) {
@@ -310,104 +474,97 @@ function RequirementsModal({ week, onClose }: { week: WeekDto; onClose: () => vo
           {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
           {!loading && !loadError && (
-            <div className="overflow-x-auto">
-              <table className="border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th className="sticky left-0 z-10 bg-white pb-2 pe-3 text-start text-xs font-medium text-gray-400" />
-                    {DAYS.map((day) => (
-                      <th key={day} className="pb-2 text-center text-xs font-medium text-gray-500" style={{ minWidth: "4rem" }}>
-                        {t(`days.${day}`)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(["morning", "evening"] as Slot[]).map((slot) => (
-                    <>
-                      {/* Slot section header */}
-                      <tr key={`${slot}-header`}>
-                        <td className="sticky left-0 z-10 bg-white border-t border-gray-200 pt-3 pb-1 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          {t(`slots.${slot}`)}
-                        </td>
-                        {DAYS.map((day) => <td key={day} className="border-t border-gray-200" />)}
-                      </tr>
-                      <tr key={`${slot}-cooks`}>
-                        <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.cooks")}</td>
-                        {DAYS.map((day) => {
-                          const key = cellKey(day, slot);
-                          return (
-                            <td key={day} className="py-1 ps-2 border-s border-gray-100">
-                              <Stepper value={cells[key]?.cooksNeeded ?? 1} onChange={(v) => updateCount(key, "cooksNeeded", v)} />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                      <tr key={`${slot}-baristas`}>
-                        <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.baristas")}</td>
-                        {DAYS.map((day) => {
-                          const key = cellKey(day, slot);
-                          return (
-                            <td key={day} className="py-1 ps-2 border-s border-gray-100">
-                              <Stepper value={cells[key]?.baristasNeeded ?? 1} onChange={(v) => updateCount(key, "baristasNeeded", v)} />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    </>
-                  ))}
+            <>
+              {shiftError && <p className="text-sm text-red-600">{shiftError}</p>}
 
-                  {/* Mid section — a per-day toggle in the header row, then Cooks/Baristas
-                      rows matching the Morning/Evening layout (labels on the left). */}
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-white border-t border-gray-200 pt-3 pb-1 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                      {t("slots.mid")}
-                    </td>
-                    {DAYS.map((day) => {
-                      const hasMid = cellKey(day, "mid") in cells;
-                      return (
-                        <td key={day} className="border-t border-gray-200 pt-3 pb-1 text-center">
-                          <input
-                            type="checkbox"
-                            checked={hasMid}
-                            onChange={(e) => toggleMid(day, e.target.checked)}
-                            className="h-4 w-4 rounded border-gray-300 accent-indigo-600"
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.cooks")}</td>
-                    {DAYS.map((day) => {
-                      const midKey = cellKey(day, "mid");
-                      const hasMid = midKey in cells;
-                      return (
-                        <td key={day} className="py-1 ps-2 border-s border-gray-100">
-                          {hasMid && (
-                            <Stepper value={cells[midKey].cooksNeeded} onChange={(v) => updateCount(midKey, "cooksNeeded", v)} />
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.baristas")}</td>
-                    {DAYS.map((day) => {
-                      const midKey = cellKey(day, "mid");
-                      const hasMid = midKey in cells;
-                      return (
-                        <td key={day} className="py-1 ps-2 border-s border-gray-100">
-                          {hasMid && (
-                            <Stepper value={cells[midKey].baristasNeeded} onChange={(v) => updateCount(midKey, "baristasNeeded", v)} />
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+              {/* Add-shift form */}
+              <div className="flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 p-2">
+                <label className="flex flex-col text-xs text-gray-500">
+                  {t("requirements.shiftName")}
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder={t("requirements.shiftNamePlaceholder")}
+                    className="mt-0.5 w-36 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col text-xs text-gray-500">
+                  {t("requirements.startTime")}
+                  <input
+                    type="time"
+                    value={newTime}
+                    onChange={(e) => setNewTime(e.target.value)}
+                    className="mt-0.5 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={shiftBusy || newName.trim() === "" || newTime === ""}
+                  onClick={handleAddShift}
+                  className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {t("requirements.addShift")}
+                </button>
+              </div>
+
+              {shifts.length === 0 ? (
+                <p className="text-center text-sm text-gray-400">{t("requirements.noShifts")}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className="sticky left-0 z-10 bg-white pb-2 pe-3 text-start text-xs font-medium text-gray-400" />
+                        {DAYS.map((day) => (
+                          <th key={day} className="pb-2 text-center text-xs font-medium text-gray-500" style={{ minWidth: "4rem" }}>
+                            {t(`days.${day}`)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shifts.map((shift) => (
+                        <Fragment key={shift.id}>
+                          {/* Shift section header (name/time + edit/delete) */}
+                          <tr>
+                            <td colSpan={DAYS.length + 1} className="border-t border-gray-200 pt-3 pb-1">
+                              <ShiftHeader
+                                shift={shift}
+                                busy={shiftBusy}
+                                onUpdate={(patch) => handleUpdateShift(shift.id, patch)}
+                                onDelete={() => handleDeleteShift(shift.id)}
+                              />
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.cooks")}</td>
+                            {DAYS.map((day) => {
+                              const key = cellKey(day, shift.id);
+                              return (
+                                <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                                  <Stepper value={cells[key]?.cooksNeeded ?? 0} onChange={(v) => updateCount(key, "cooksNeeded", v)} />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          <tr>
+                            <td className="sticky left-0 z-10 bg-white py-1 pe-3 text-xs text-gray-500 whitespace-nowrap border-e border-gray-100">{t("requirements.baristas")}</td>
+                            {DAYS.map((day) => {
+                              const key = cellKey(day, shift.id);
+                              return (
+                                <td key={day} className="py-1 ps-2 border-s border-gray-100">
+                                  <Stepper value={cells[key]?.baristasNeeded ?? 0} onChange={(v) => updateCount(key, "baristasNeeded", v)} />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -552,14 +709,16 @@ function ShiftCountsModal({ week, onClose }: { week: WeekDto; onClose: () => voi
 function EmployeeAvailabilityModal({
   user,
   availability,
+  shifts,
   onClose,
 }: {
   user: UserDto;
   availability: AvailabilityDto[];
+  shifts: ShiftDto[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const ticked = new Set(availability.map((a) => cellKey(a.day, a.slot)));
+  const ticked = new Set(availability.map((a) => cellKey(a.day, a.shiftId)));
 
   return (
     <div
@@ -589,14 +748,14 @@ function EmployeeAvailabilityModal({
               </tr>
             </thead>
             <tbody>
-              {SLOTS.map((slot) => (
-                <tr key={slot} className="border-t border-gray-100">
+              {shifts.map((shift) => (
+                <tr key={shift.id} className="border-t border-gray-100">
                   <td className="whitespace-nowrap py-2 pe-3 text-xs font-medium text-gray-500">
-                    {t(`slots.${slot}`)}
+                    {shift.name}
                   </td>
                   {DAYS.map((day) => (
                     <td key={day} className="py-2 text-center">
-                      {ticked.has(cellKey(day, slot)) ? (
+                      {ticked.has(cellKey(day, shift.id)) ? (
                         <span className="font-semibold text-indigo-600">✓</span>
                       ) : (
                         <span className="text-gray-300">·</span>
@@ -629,15 +788,17 @@ function AvailabilityCard({ week }: { week: WeekDto }) {
   const { t } = useTranslation();
   const [employees, setEmployees] = useState<UserDto[] | null>(null);
   const [availability, setAvailability] = useState<AvailabilityDto[]>([]);
+  const [shifts, setShifts] = useState<ShiftDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [viewing, setViewing] = useState<UserDto | null>(null);
 
   useEffect(() => {
-    Promise.all([api.users.list(), api.availability.getAll(week.id)])
-      .then(([{ users }, { availability }]) => {
+    Promise.all([api.users.list(), api.availability.getAll(week.id), api.shifts.get(week.id)])
+      .then(([{ users }, { availability }, { shifts }]) => {
         setEmployees(users.filter((u) => u.isActive && u.role === "employee"));
         setAvailability(availability);
+        setShifts([...shifts].sort(byStartTime));
       })
       .catch(() => setError(t("weeks.loadError")));
   }, [week.id, t]);
@@ -725,6 +886,7 @@ function AvailabilityCard({ week }: { week: WeekDto }) {
         <EmployeeAvailabilityModal
           user={viewing}
           availability={availability.filter((a) => a.userId === viewing.id)}
+          shifts={shifts}
           onClose={() => setViewing(null)}
         />
       )}
@@ -757,7 +919,7 @@ function ScheduleHealth({
         for (const r of requirements) {
           const filled = (role: string) =>
             assignments.filter(
-              (a) => a.day === r.day && a.slot === r.slot && a.roleWorking === role
+              (a) => a.day === r.day && a.shiftId === r.shiftId && a.roleWorking === role
             ).length;
           spots += Math.max(0, r.cooksNeeded - filled("cook"));
           spots += Math.max(0, r.baristasNeeded - filled("barista"));

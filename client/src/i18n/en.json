@@ -102,10 +102,17 @@
     "noScheduleMadeYet": "No schedule was made for this week yet"
   },
   "requirements": {
-    "title": "Shift Requirements",
+    "title": "Shifts & Requirements",
     "editRequirements": "Requirements",
     "cooks": "Cooks",
     "baristas": "Baristas",
+    "addShift": "Add shift",
+    "shiftName": "Shift name",
+    "shiftNamePlaceholder": "e.g. Mid Morning",
+    "startTime": "Start time",
+    "deleteShift": "Delete shift",
+    "deleteShiftWarning": "Delete this shift? Its requirements, availability, and assignments will be removed.",
+    "noShifts": "No shifts yet — add one above.",
     "warning": "This week already has assignments. Changes here may make them inconsistent.",
     "loadError": "Failed to load requirements"
   },
@@ -156,11 +163,6 @@
     "4": "Thu",
     "5": "Fri",
     "6": "Sat"
-  },
-  "slots": {
-    "morning": "Morning",
-    "mid": "Mid",
-    "evening": "Evening"
   },
   "common": {
     "cancel": "Cancel",

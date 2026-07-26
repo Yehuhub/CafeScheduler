@@ -32,8 +32,9 @@ async function loadWeek(weekIdRaw: string) {
   return { weekId, week };
 }
 
-// GET /weeks/:weekId/shifts  (boss only)
-router.get("/weeks/:weekId/shifts", requireLogin, requireBoss, async (req, res, next) => {
+// GET /weeks/:weekId/shifts  (any logged-in user — employees need shift metadata to render
+// their availability grid and the published schedule; only name/startTime are exposed)
+router.get("/weeks/:weekId/shifts", requireLogin, async (req, res, next) => {
   try {
     const { weekId } = await loadWeek(req.params.weekId);
     const rows = await prisma.shift.findMany({

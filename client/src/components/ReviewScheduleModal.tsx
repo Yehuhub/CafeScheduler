@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
-import { SLOTS, ROLES_WORKING } from "@shared/types";
+import { ROLES_WORKING } from "@shared/types";
 import type {
   WeekDto,
   AssignmentDto,
   ShiftRequirementDto,
+  ShiftDto,
   UserDto,
   RoleWorking,
-  Slot,
 } from "@shared/types";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
-function cellKey(day: number, slot: string): string {
-  return `${day}-${slot}`;
+function cellKey(day: number, shiftId: number): string {
+  return `${day}-${shiftId}`;
 }
-function availKey(userId: number, day: number, slot: string): string {
-  return `${userId}-${day}-${slot}`;
+function availKey(userId: number, day: number, shiftId: number): string {
+  return `${userId}-${day}-${shiftId}`;
+}
+function byStartTime(a: ShiftDto, b: ShiftDto): number {
+  return a.startTime.localeCompare(b.startTime) || a.id - b.id;
 }
 
-type Picker = { day: number; slot: Slot; role: RoleWorking };
+type Picker = { day: number; shift: ShiftDto; role: RoleWorking };
 
 export default function ReviewScheduleModal({
   week,
@@ -33,6 +36,7 @@ export default function ReviewScheduleModal({
 
   const [assignments, setAssignments] = useState<AssignmentDto[]>([]);
   const [requirements, setRequirements] = useState<ShiftRequirementDto[]>([]);
+  const [shifts, setShifts] = useState<ShiftDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
   const [bosses, setBosses] = useState<UserDto[]>([]);
   const [names, setNames] = useState<Map<number, string>>(new Map());
@@ -50,15 +54,17 @@ export default function ReviewScheduleModal({
     Promise.all([
       api.assignments.list(week.id),
       api.requirements.get(week.id),
+      api.shifts.get(week.id),
       api.users.list(),
       api.availability.getAll(week.id),
       api.shiftCounts.get(week.id),
     ])
-      .then(([{ assignments, assignees }, { requirements }, { users: allUsers }, { availability }, { shiftCounts }]) => {
+      .then(([{ assignments, assignees }, { requirements }, { shifts }, { users: allUsers }, { availability }, { shiftCounts }]) => {
         const employees = allUsers.filter((u) => u.isActive && u.role === "employee");
         const bossUsers = allUsers.filter((u) => u.isActive && u.role === "boss");
         setAssignments(assignments);
         setRequirements(requirements);
+        setShifts([...shifts].sort(byStartTime));
         setUsers(employees);
         setBosses(bossUsers);
 
@@ -70,7 +76,7 @@ export default function ReviewScheduleModal({
         for (const u of [...employees, ...bossUsers]) nameMap.set(u.id, u.name);
         setNames(nameMap);
         setAvailableSet(
-          new Set(availability.filter((a) => a.available).map((a) => availKey(a.userId, a.day, a.slot)))
+          new Set(availability.filter((a) => a.available).map((a) => availKey(a.userId, a.day, a.shiftId)))
         );
 
         // Weekly shift cap per user: their WeeklyShiftCount row, or defaultShiftsPerWeek if unseeded.
@@ -81,10 +87,10 @@ export default function ReviewScheduleModal({
         const shortDays = new Set<number>();
         for (const r of requirements) {
           const cooks = assignments.filter(
-            (a) => a.day === r.day && a.slot === r.slot && a.roleWorking === "cook"
+            (a) => a.day === r.day && a.shiftId === r.shiftId && a.roleWorking === "cook"
           ).length;
           const baristas = assignments.filter(
-            (a) => a.day === r.day && a.slot === r.slot && a.roleWorking === "barista"
+            (a) => a.day === r.day && a.shiftId === r.shiftId && a.roleWorking === "barista"
           ).length;
           if (cooks < r.cooksNeeded || baristas < r.baristasNeeded) shortDays.add(r.day);
         }
@@ -96,39 +102,40 @@ export default function ReviewScheduleModal({
 
   const reqByCell = useMemo(() => {
     const m = new Map<string, ShiftRequirementDto>();
-    for (const r of requirements) m.set(cellKey(r.day, r.slot), r);
+    for (const r of requirements) m.set(cellKey(r.day, r.shiftId), r);
     return m;
   }, [requirements]);
 
-  // Which (day, slot) cells to render: any with a requirement or an existing assignment.
-  const slotsByDay = useMemo(() => {
+  // Which (day, shift) cells to render: any shift with a requirement or an existing
+  // assignment that day, ordered chronologically by start time.
+  const shiftsByDay = useMemo(() => {
     const present = new Set<string>();
-    for (const r of requirements) present.add(cellKey(r.day, r.slot));
-    for (const a of assignments) present.add(cellKey(a.day, a.slot));
-    const m = new Map<number, Slot[]>();
+    for (const r of requirements) present.add(cellKey(r.day, r.shiftId));
+    for (const a of assignments) present.add(cellKey(a.day, a.shiftId));
+    const m = new Map<number, ShiftDto[]>();
     for (const day of DAYS) {
-      const slots = SLOTS.filter((s) => present.has(cellKey(day, s)));
-      if (slots.length > 0) m.set(day, slots);
+      const dayShifts = shifts.filter((s) => present.has(cellKey(day, s.id)));
+      if (dayShifts.length > 0) m.set(day, dayShifts);
     }
     return m;
-  }, [requirements, assignments]);
+  }, [requirements, assignments, shifts]);
 
-  const neededFor = (day: number, slot: Slot, role: RoleWorking): number => {
-    const r = reqByCell.get(cellKey(day, slot));
+  const neededFor = (day: number, shiftId: number, role: RoleWorking): number => {
+    const r = reqByCell.get(cellKey(day, shiftId));
     if (!r) return 0;
     return role === "cook" ? r.cooksNeeded : r.baristasNeeded;
   };
-  const assignmentsFor = (day: number, slot: Slot, role: RoleWorking): AssignmentDto[] =>
-    assignments.filter((a) => a.day === day && a.slot === slot && a.roleWorking === role);
+  const assignmentsFor = (day: number, shiftId: number, role: RoleWorking): AssignmentDto[] =>
+    assignments.filter((a) => a.day === day && a.shiftId === shiftId && a.roleWorking === role);
 
   const daySummary = (day: number): { assigned: number; needed: number } => {
-    const slots = slotsByDay.get(day) ?? [];
+    const dayShifts = shiftsByDay.get(day) ?? [];
     let assigned = 0;
     let needed = 0;
-    for (const slot of slots) {
+    for (const shift of dayShifts) {
       for (const role of ROLES_WORKING) {
-        assigned += assignmentsFor(day, slot, role).length;
-        needed += neededFor(day, slot, role);
+        assigned += assignmentsFor(day, shift.id, role).length;
+        needed += neededFor(day, shift.id, role);
       }
     }
     return { assigned, needed };
@@ -150,7 +157,7 @@ export default function ReviewScheduleModal({
       const { assignment } = await api.assignments.add(week.id, {
         userId,
         day: picker.day,
-        slot: picker.slot,
+        shiftId: picker.shift.id,
         roleWorking: picker.role,
       });
       setAssignments((prev) => [...prev, assignment]);
@@ -176,9 +183,9 @@ export default function ReviewScheduleModal({
     }
   };
 
-  const renderRoleRow = (day: number, slot: Slot, role: RoleWorking) => {
-    const needed = neededFor(day, slot, role);
-    const filled = assignmentsFor(day, slot, role);
+  const renderRoleRow = (day: number, shift: ShiftDto, role: RoleWorking) => {
+    const needed = neededFor(day, shift.id, role);
+    const filled = assignmentsFor(day, shift.id, role);
     if (needed === 0 && filled.length === 0) return null;
     const short = filled.length < needed;
 
@@ -208,7 +215,7 @@ export default function ReviewScheduleModal({
               type="button"
               onClick={() => {
                 setActionError(null);
-                setPicker({ day, slot, role });
+                setPicker({ day, shift, role });
               }}
               className="rounded border border-dashed border-gray-300 px-2 py-0.5 text-xs text-gray-500 hover:border-gray-400 hover:bg-gray-50"
             >
@@ -223,7 +230,7 @@ export default function ReviewScheduleModal({
     );
   };
 
-  const presentDays = [...slotsByDay.keys()];
+  const presentDays = [...shiftsByDay.keys()];
 
   return (
     <div
@@ -275,12 +282,12 @@ export default function ReviewScheduleModal({
 
                   {open && (
                     <div className="border-t border-gray-100 px-3 py-2">
-                      {(slotsByDay.get(day) ?? []).map((slot) => (
-                        <div key={slot} className="border-b border-gray-50 py-1.5 last:border-b-0">
+                      {(shiftsByDay.get(day) ?? []).map((shift) => (
+                        <div key={shift.id} className="border-b border-gray-50 py-1.5 last:border-b-0">
                           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                            {t(`slots.${slot}`)}
+                            {shift.name} <span className="font-normal text-gray-300">{shift.startTime}</span>
                           </p>
-                          {ROLES_WORKING.map((role) => renderRoleRow(day, slot, role))}
+                          {ROLES_WORKING.map((role) => renderRoleRow(day, shift, role))}
                         </div>
                       ))}
                     </div>
@@ -341,10 +348,10 @@ function AddPersonSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { day, slot, role } = picker;
+  const { day, shift, role } = picker;
 
   const inCell = new Set(
-    assignments.filter((a) => a.day === day && a.slot === slot).map((a) => a.userId)
+    assignments.filter((a) => a.day === day && a.shiftId === shift.id).map((a) => a.userId)
   );
 
   // Bosses are always offerable (they can fill any role) — a last-resort tier when
@@ -358,7 +365,7 @@ function AddPersonSheet({
     .map((u) => {
       const assignedThisWeek = assignments.filter((a) => a.userId === u.id).length;
       const limit = shiftLimits.get(u.id) ?? u.defaultShiftsPerWeek;
-      const available = availableSet.has(availKey(u.id, day, slot));
+      const available = availableSet.has(availKey(u.id, day, shift.id));
       const elsewhere = assignments.some((a) => a.userId === u.id && a.day === day);
       const atLimit = assignedThisWeek >= limit;
       return {
@@ -387,7 +394,7 @@ function AddPersonSheet({
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <h3 className="text-sm font-semibold">
             {t(role === "cook" ? "review.addCook" : "review.addBarista")} · {t(`days.${day}`)}{" "}
-            {t(`slots.${slot}`)}
+            {shift.name}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             ✕

@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, Slot, RoleWorking, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, AssigneeDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, ShiftDto, RoleWorking, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, AssigneeDto, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -31,22 +31,27 @@ export interface CreateUserInput {
 
 export interface ShiftRequirementEntryInput {
   day: number;
-  slot: Slot;
+  shiftId: number;
   cooksNeeded: number;
   baristasNeeded: number;
 }
 
 export interface AvailabilityEntryInput {
   day: number;
-  slot: Slot;
+  shiftId: number;
   available: boolean;
 }
 
 export interface AssignmentInput {
   userId: number;
   day: number;
-  slot: Slot;
+  shiftId: number;
   roleWorking: RoleWorking;
+}
+
+export interface ShiftInput {
+  name: string;
+  startTime: string;
 }
 
 export interface UpdateUserInput {
@@ -115,6 +120,23 @@ export const api = {
     // Not a fetch; returns the URL so components don't hand-build it.
     exportUrl: (id: number, format: "html" | "pdf" = "html") =>
       `${BASE}/weeks/${id}/export.${format}`,
+  },
+
+  shifts: {
+    get: (weekId: number) =>
+      request<{ shifts: ShiftDto[] }>(`/weeks/${weekId}/shifts`),
+    create: (weekId: number, input: ShiftInput) =>
+      request<{ shift: ShiftDto }>(`/weeks/${weekId}/shifts`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (weekId: number, shiftId: number, input: Partial<ShiftInput>) =>
+      request<{ shift: ShiftDto }>(`/weeks/${weekId}/shifts/${shiftId}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (weekId: number, shiftId: number) =>
+      request<void>(`/weeks/${weekId}/shifts/${shiftId}`, { method: "DELETE" }),
   },
 
   requirements: {

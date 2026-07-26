@@ -4,16 +4,19 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
 import EmployeeNav from "../components/EmployeeNav";
 import { api } from "../api";
-import { SLOTS } from "@shared/types";
 import { weekStartOf } from "@shared/weekDates";
-import type { WeekDto, Slot, AssignmentDto } from "@shared/types";
+import type { WeekDto, AssignmentDto, ShiftDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
-function cellKey(day: number, slot: Slot): string {
-  return `${day}-${slot}`;
+function cellKey(day: number, shiftId: number): string {
+  return `${day}-${shiftId}`;
+}
+
+function byStartTime(a: ShiftDto, b: ShiftDto): number {
+  return a.startTime.localeCompare(b.startTime) || a.id - b.id;
 }
 
 function formatDate(iso: string): string {
@@ -31,6 +34,7 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
   const { t } = useTranslation();
 
   // persisted: what the server has saved; draft: working copy while editing
+  const [shifts, setShifts] = useState<ShiftDto[]>([]);
   const [persisted, setPersisted] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState(false);
@@ -39,15 +43,14 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load existing availability once we have a week
+  // Load the week's shifts + existing availability
   useEffect(() => {
     setLoadingAvail(true);
     setAvError(null);
-    api.availability
-      .getMine(week.id)
-      .then(({ availability }) => {
-        const keys = new Set(availability.map((a) => cellKey(a.day, a.slot as Slot)));
-        setPersisted(keys);
+    Promise.all([api.availability.getMine(week.id), api.shifts.get(week.id)])
+      .then(([{ availability }, { shifts }]) => {
+        setShifts([...shifts].sort(byStartTime));
+        setPersisted(new Set(availability.map((a) => cellKey(a.day, a.shiftId))));
       })
       .catch(() => setAvError(t("availability.loadError")))
       .finally(() => setLoadingAvail(false));
@@ -67,11 +70,11 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
     setSaveError(null);
   };
 
-  const toggleDraft = (day: number, slot: Slot) => {
+  const toggleDraft = (day: number, shiftId: number) => {
     setSaveError(null);
     setDraft((prev) => {
       const next = new Set(prev);
-      const key = cellKey(day, slot);
+      const key = cellKey(day, shiftId);
       if (next.has(key)) {
         next.delete(key);
       } else {
@@ -86,12 +89,16 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
     setSaving(true);
     // Send the full grid so the server can do a sparse replace
     const entries = DAYS.flatMap((day) =>
-      SLOTS.map((slot) => ({ day, slot, available: draft.has(cellKey(day, slot)) }))
+      shifts.map((shift) => ({
+        day,
+        shiftId: shift.id,
+        available: draft.has(cellKey(day, shift.id)),
+      }))
     );
     try {
       const { availability } = await api.availability.putMine(week.id, entries);
       // Reconcile persisted state with what the server saved, then collapse
-      const keys = new Set(availability.map((a) => cellKey(a.day, a.slot as Slot)));
+      const keys = new Set(availability.map((a) => cellKey(a.day, a.shiftId)));
       setPersisted(keys);
       setEditing(false);
     } catch (err) {
@@ -160,19 +167,19 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
                 </tr>
               </thead>
               <tbody>
-                {SLOTS.map((slot) => (
-                  <tr key={slot} className="border-t border-gray-100">
+                {shifts.map((shift) => (
+                  <tr key={shift.id} className="border-t border-gray-100">
                     <td className="py-2 pe-3 text-xs font-medium text-gray-500 whitespace-nowrap">
-                      {t(`slots.${slot}`)}
+                      {shift.name}
                     </td>
                     {DAYS.map((day) => {
-                      const key = cellKey(day, slot);
+                      const key = cellKey(day, shift.id);
                       return (
                         <td key={day} className="py-2 text-center">
                           <input
                             type="checkbox"
                             checked={draft.has(key)}
-                            onChange={() => toggleDraft(day, slot)}
+                            onChange={() => toggleDraft(day, shift.id)}
                             className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-indigo-600"
                           />
                         </td>
@@ -234,22 +241,28 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
   const { t } = useTranslation();
   const [assignments, setAssignments] = useState<AssignmentDto[] | null>(null);
   const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [shifts, setShifts] = useState<ShiftDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"mine" | "all">("mine");
 
   useEffect(() => {
-    api.assignments
-      .list(week.id)
-      .then(({ assignments, assignees }) => {
+    Promise.all([api.assignments.list(week.id), api.shifts.get(week.id)])
+      .then(([{ assignments, assignees }, { shifts }]) => {
         setAssignments(assignments);
         setNames(new Map(assignees.map((a) => [a.id, a.name])));
+        setShifts([...shifts].sort(byStartTime));
       })
       .catch(() => setError(t("weeks.loadError")));
   }, [week.id, t]);
 
+  const shiftById = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
+  const shiftName = (id: number) => shiftById.get(id)?.name ?? `#${id}`;
+  const shiftTime = (id: number) => shiftById.get(id)?.startTime ?? "";
+
   const byShift = (a: AssignmentDto, b: AssignmentDto) =>
     a.day - b.day ||
-    SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot) ||
+    shiftTime(a.shiftId).localeCompare(shiftTime(b.shiftId)) ||
+    a.shiftId - b.shiftId ||
     a.roleWorking.localeCompare(b.roleWorking);
 
   const mine = (assignments ?? []).filter((a) => a.userId === userId).sort(byShift);
@@ -297,7 +310,7 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
             {mine.map((s) => (
               <li key={s.id} className="grid grid-cols-3 items-center gap-3 py-2 text-sm">
                 <span className="font-medium">{t(`days.${s.day}`)}</span>
-                <span className="text-center text-gray-600">{t(`slots.${s.slot}`)}</span>
+                <span className="text-center text-gray-600">{shiftName(s.shiftId)}</span>
                 <div className="flex justify-end">
                   <RolePill role={s.roleWorking} />
                 </div>
@@ -329,14 +342,14 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
                   </tr>
                 </thead>
                 <tbody>
-                  {SLOTS.filter((slot) => all.some((a) => a.slot === slot)).map((slot) => (
-                    <tr key={slot} className="border-t border-gray-200 align-top">
+                  {shifts.filter((shift) => all.some((a) => a.shiftId === shift.id)).map((shift) => (
+                    <tr key={shift.id} className="border-t border-gray-200 align-top">
                       <td className="sticky left-0 z-10 whitespace-nowrap border-e border-gray-100 bg-white py-3 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                        {t(`slots.${slot}`)}
+                        {shift.name}
                       </td>
                       {DAYS.map((day) => {
                         const people = all
-                          .filter((a) => a.day === day && a.slot === slot)
+                          .filter((a) => a.day === day && a.shiftId === shift.id)
                           .sort(
                             (a, b) =>
                               a.roleWorking.localeCompare(b.roleWorking) ||
