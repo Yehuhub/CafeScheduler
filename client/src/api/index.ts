@@ -1,4 +1,4 @@
-import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, ShiftDto, RoleWorking, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, AssigneeDto, ApiError } from "@shared/types";
+import type { UserDto, WeekDto, WeekStatus, AvailabilityDto, ShiftDto, ShiftWithDaysDto, RoleWorking, ShiftRequirementDto, WeeklyShiftCountDto, AssignmentDto, AssigneeDto, ApiError } from "@shared/types";
 
 const BASE = "/api";
 
@@ -124,7 +124,7 @@ export const api = {
 
   shifts: {
     get: (weekId: number) =>
-      request<{ shifts: ShiftDto[] }>(`/weeks/${weekId}/shifts`),
+      request<{ shifts: ShiftWithDaysDto[] }>(`/weeks/${weekId}/shifts`),
     create: (weekId: number, input: ShiftInput) =>
       request<{ shift: ShiftDto }>(`/weeks/${weekId}/shifts`, {
         method: "POST",

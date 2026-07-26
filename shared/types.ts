@@ -41,6 +41,12 @@ export interface ShiftDto {
   startTime: string;
 }
 
+// GET /weeks/:weekId/shifts augments each shift with the days it actually runs
+// (has a non-zero requirement) so the availability grid can offer only real cells.
+export interface ShiftWithDaysDto extends ShiftDto {
+  days: number[]; // 0–6, sorted ascending
+}
+
 export interface AvailabilityDto {
   id: number;
   weekId: number;

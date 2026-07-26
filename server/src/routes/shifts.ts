@@ -33,15 +33,38 @@ async function loadWeek(weekIdRaw: string) {
 }
 
 // GET /weeks/:weekId/shifts  (any logged-in user — employees need shift metadata to render
-// their availability grid and the published schedule; only name/startTime are exposed)
+// their availability grid and the published schedule; only name/startTime/running-days are
+// exposed, never the boss-only headcount numbers). Each shift carries `days`: the days it
+// actually runs (has a non-zero requirement), so the availability grid offers only real cells.
 router.get("/weeks/:weekId/shifts", requireLogin, async (req, res, next) => {
   try {
     const { weekId } = await loadWeek(req.params.weekId);
-    const rows = await prisma.shift.findMany({
-      where: { weekId },
-      orderBy: [{ startTime: "asc" }, { id: "asc" }],
+    const [rows, reqs] = await Promise.all([
+      prisma.shift.findMany({
+        where: { weekId },
+        orderBy: [{ startTime: "asc" }, { id: "asc" }],
+      }),
+      prisma.shiftRequirement.findMany({
+        where: { weekId },
+        select: { shiftId: true, day: true, cooksNeeded: true, baristasNeeded: true },
+      }),
+    ]);
+
+    const daysByShift = new Map<number, Set<number>>();
+    for (const r of reqs) {
+      if (r.cooksNeeded > 0 || r.baristasNeeded > 0) {
+        let set = daysByShift.get(r.shiftId);
+        if (!set) daysByShift.set(r.shiftId, (set = new Set()));
+        set.add(r.day);
+      }
+    }
+
+    res.json({
+      shifts: rows.map((s) => ({
+        ...toShiftDto(s),
+        days: [...(daysByShift.get(s.id) ?? [])].sort((a, b) => a - b),
+      })),
     });
-    res.json({ shifts: rows.map(toShiftDto) });
   } catch (err) {
     next(err);
   }

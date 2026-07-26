@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import EmployeeNav from "../components/EmployeeNav";
 import { api } from "../api";
 import { weekStartOf } from "@shared/weekDates";
-import type { WeekDto, AssignmentDto, ShiftDto } from "@shared/types";
+import type { WeekDto, AssignmentDto, ShiftDto, ShiftWithDaysDto } from "@shared/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
   const { t } = useTranslation();
 
   // persisted: what the server has saved; draft: working copy while editing
-  const [shifts, setShifts] = useState<ShiftDto[]>([]);
+  const [shifts, setShifts] = useState<ShiftWithDaysDto[]>([]);
   const [persisted, setPersisted] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState(false);
@@ -87,13 +87,16 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
   const handleSave = async () => {
     setSaveError(null);
     setSaving(true);
-    // Send the full grid so the server can do a sparse replace
+    // Send only cells for (shift, day) that actually run — the server sparse-replaces,
+    // so anything omitted is cleared.
     const entries = DAYS.flatMap((day) =>
-      shifts.map((shift) => ({
-        day,
-        shiftId: shift.id,
-        available: draft.has(cellKey(day, shift.id)),
-      }))
+      shifts
+        .filter((shift) => shift.days.includes(day))
+        .map((shift) => ({
+          day,
+          shiftId: shift.id,
+          available: draft.has(cellKey(day, shift.id)),
+        }))
     );
     try {
       const { availability } = await api.availability.putMine(week.id, entries);
@@ -167,26 +170,34 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
                 </tr>
               </thead>
               <tbody>
-                {shifts.map((shift) => (
-                  <tr key={shift.id} className="border-t border-gray-100">
-                    <td className="py-2 pe-3 text-xs font-medium text-gray-500 whitespace-nowrap">
-                      {shift.name}
-                    </td>
-                    {DAYS.map((day) => {
-                      const key = cellKey(day, shift.id);
-                      return (
-                        <td key={day} className="py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={draft.has(key)}
-                            onChange={() => toggleDraft(day, shift.id)}
-                            className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-indigo-600"
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {shifts
+                  .filter((shift) => shift.days.length > 0)
+                  .map((shift) => (
+                    <tr key={shift.id} className="border-t border-gray-100">
+                      <td className="py-2 pe-3 whitespace-nowrap">
+                        <span className="text-xs font-medium text-gray-500">{shift.name}</span>
+                        <span className="ms-1 text-xs text-gray-400">{shift.startTime}</span>
+                      </td>
+                      {DAYS.map((day) => {
+                        const runs = shift.days.includes(day);
+                        const key = cellKey(day, shift.id);
+                        return (
+                          <td key={day} className="py-2 text-center">
+                            {runs ? (
+                              <input
+                                type="checkbox"
+                                checked={draft.has(key)}
+                                onChange={() => toggleDraft(day, shift.id)}
+                                className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-indigo-600"
+                              />
+                            ) : (
+                              <span className="text-gray-200" aria-hidden>·</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -310,7 +321,10 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
             {mine.map((s) => (
               <li key={s.id} className="grid grid-cols-3 items-center gap-3 py-2 text-sm">
                 <span className="font-medium">{t(`days.${s.day}`)}</span>
-                <span className="text-center text-gray-600">{shiftName(s.shiftId)}</span>
+                <span className="text-center text-gray-600">
+                  {shiftName(s.shiftId)}
+                  <span className="ms-1 text-xs text-gray-400">{shiftTime(s.shiftId)}</span>
+                </span>
                 <div className="flex justify-end">
                   <RolePill role={s.roleWorking} />
                 </div>
@@ -344,8 +358,13 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
                 <tbody>
                   {shifts.filter((shift) => all.some((a) => a.shiftId === shift.id)).map((shift) => (
                     <tr key={shift.id} className="border-t border-gray-200 align-top">
-                      <td className="sticky left-0 z-10 whitespace-nowrap border-e border-gray-100 bg-white py-3 pe-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                        {shift.name}
+                      <td className="sticky left-0 z-10 whitespace-nowrap border-e border-gray-100 bg-white py-3 pe-3">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          {shift.name}
+                        </span>
+                        <span className="block text-xs font-normal normal-case text-gray-400">
+                          {shiftTime(shift.id)}
+                        </span>
                       </td>
                       {DAYS.map((day) => {
                         const people = all
