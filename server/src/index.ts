@@ -17,6 +17,10 @@ const SQLiteStore = ConnectSqlite3(session);
 const app = express();
 const PORT = process.env.PORT ?? 3000;
 
+// Behind Caddy (reverse proxy): trust the proxy so Express recognizes the
+// original request as HTTPS and will set the `secure` session cookie.
+app.set("trust proxy", 1);
+
 app.use(express.json());
 
 app.use(
