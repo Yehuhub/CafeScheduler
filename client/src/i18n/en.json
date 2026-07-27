@@ -37,7 +37,7 @@
   },
   "nav": {
     "home": "Home",
-    "schedule": "Schedule",
+    "schedule": "this is to test the redeploy script",
     "users": "Staff"
   },
   "weeks": {
