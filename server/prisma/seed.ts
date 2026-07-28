@@ -1,17 +1,20 @@
 import "dotenv/config";
 import bcrypt from "bcrypt";
 import { PrismaClient } from "@prisma/client";
+import { normalizeUsername } from "../../shared/types";
 
 const prisma = new PrismaClient();
 
 async function main() {
   const name = process.env.BOSS_NAME;
-  const username = process.env.BOSS_USERNAME;
+  const rawUsername = process.env.BOSS_USERNAME;
   const password = process.env.BOSS_PASSWORD;
 
-  if (!name || !username || !password) {
+  if (!name || !rawUsername || !password) {
     throw new Error("BOSS_NAME, BOSS_USERNAME, and BOSS_PASSWORD must be set in .env");
   }
+
+  const username = normalizeUsername(rawUsername);
 
   const passwordHash = await bcrypt.hash(password, 10);
 

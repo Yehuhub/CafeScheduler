@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import prisma from "../lib/prisma";
 import { requireLogin, requireBoss } from "../middleware/auth";
 import { HttpError } from "../lib/errors";
-import type { Role } from "../../../shared/types";
+import { normalizeUsername, type Role } from "../../../shared/types";
 
 const router = Router();
 
@@ -75,7 +75,8 @@ router.post("/", requireLogin, requireBoss, async (req, res, next) => {
       throw new HttpError(400, "defaultShiftsPerWeek must be a non-negative integer", "VALIDATION_ERROR");
     }
 
-    const existing = await prisma.user.findUnique({ where: { username } });
+    const normalizedUsername = normalizeUsername(username);
+    const existing = await prisma.user.findUnique({ where: { username: normalizedUsername } });
     if (existing) {
       throw new HttpError(409, "Username already taken", "USERNAME_TAKEN");
     }
@@ -84,7 +85,7 @@ router.post("/", requireLogin, requireBoss, async (req, res, next) => {
     const user = await prisma.user.create({
       data: {
         name: name.trim(),
-        username: username.trim(),
+        username: normalizedUsername,
         passwordHash,
         role: resolvedRole,
         isCook,

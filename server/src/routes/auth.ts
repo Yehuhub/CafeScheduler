@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import prisma from "../lib/prisma";
 import { HttpError } from "../lib/errors";
 import { requireLogin } from "../middleware/auth";
-import type { Role } from "../../../shared/types";
+import { normalizeUsername, type Role } from "../../../shared/types";
 
 const router = Router();
 
@@ -13,7 +13,9 @@ router.post("/login", async (req, res, next) => {
     if (typeof username !== "string" || typeof password !== "string") {
       throw new HttpError(400, "username and password are required", "VALIDATION_ERROR");
     }
-    const user = await prisma.user.findUnique({ where: { username } });
+    const user = await prisma.user.findUnique({
+      where: { username: normalizeUsername(username) },
+    });
     if (!user || !user.isActive) {
       throw new HttpError(401, "Invalid credentials", "INVALID_CREDENTIALS");
     }

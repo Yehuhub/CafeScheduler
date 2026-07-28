@@ -10,6 +10,13 @@ export type WeekStatus =
 export const ROLES_WORKING = ["cook", "barista"] as const;
 export type RoleWorking = (typeof ROLES_WORKING)[number];
 
+// Usernames are case-insensitive login keys. We normalize to lowercase (and trim)
+// on every write and on the login lookup, so the stored value is the canonical
+// form and the unique constraint enforces case-insensitive uniqueness.
+export function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
 // DTO shapes returned by the API (no passwordHash, dates as ISO strings)
 
 export interface UserDto {
