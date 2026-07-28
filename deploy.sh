@@ -3,12 +3,6 @@
 # Redeploy cafe-scheduler on the server.
 # Pulls the latest code, rebuilds server + client, and restarts the API.
 #
-# One-time setup (firewall, Caddyfile, systemd unit, .env, home-dir chmod)
-# is NOT handled here — it only needs doing once. This script covers the
-# repeating part of every deploy.
-#
-# Usage (from the server, inside the repo):  ./deploy.sh
-#
 # The whole body lives in main() so that the `git pull` below cannot corrupt
 # the running script: bash parses the entire function into memory before
 # main is invoked on the last line.
