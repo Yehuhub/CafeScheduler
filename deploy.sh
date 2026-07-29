@@ -10,6 +10,13 @@
 set -euo pipefail
 
 main() {
+  # Serialize deploys: hold a lock for the whole run so overlapping triggers
+  # (two pushes close together, or a manual run racing a webhook) queue and
+  # wait here instead of running concurrently. The lock releases automatically
+  # when the script exits, since the OS closes fd 9 on exit.
+  exec 9>/tmp/cafe-deploy.lock
+  flock 9
+
   # Operate on this script's own repo, regardless of where it's called from.
   local repo_dir
   repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
