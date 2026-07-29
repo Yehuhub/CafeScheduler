@@ -1,6 +1,6 @@
 # Cafe Scheduler
 
-A full-stack web app for building and publishing weekly staff schedules at a small cafe. It replaces a manual workflow (employees texting the owner their availability, the owner arranging shifts by hand) with a structured flow: employees submit availability online, a deterministic auto-assigner drafts the week, and the owner reviews, edits, and publishes.
+A web app for building and publishing weekly staff schedules at a small cafe. It replaces a manual workflow (employees texting the owner their availability, the owner arranging shifts by hand) with a structured flow: employees submit availability online, a deterministic auto-assigner drafts the week, and the owner reviews, edits, and publishes.
 
 Built with TypeScript on both the server and client, sharing one set of type definitions.
 
