@@ -14,6 +14,7 @@ interface CellPerson {
 interface ScheduleShift {
   id: number;
   name: string;
+  startTime: string; // "HH:MM"
 }
 
 export interface ScheduleView {
@@ -47,7 +48,7 @@ export function buildScheduleView(input: BuildScheduleViewInput): ScheduleView {
   const shifts = [...allShifts]
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.id - b.id)
     .filter((s) => usedShiftIds.has(s.id))
-    .map((s) => ({ id: s.id, name: s.name }));
+    .map((s) => ({ id: s.id, name: s.name, startTime: s.startTime }));
 
   const cells: Record<string, CellPerson[]> = {};
   for (const a of assignments) {
@@ -86,13 +87,25 @@ function formatDate(iso: string): string {
   });
 }
 
+// Short dd/mm for a day-of-week header. `startIso` is the week's Sunday; day 0..6 offsets it.
+function dayDate(startIso: string, day: number): string {
+  const d = new Date(startIso);
+  d.setUTCDate(d.getUTCDate() + day);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
 export function renderScheduleHtml(view: ScheduleView): string {
   const dateLabel = formatDate(view.weekStartDate);
 
-  const bodyRows = view.shifts
-    .map((shift) => {
-      const cells = DAYS.map((day) => {
+  // One column per day; inside a column, only the shifts that actually run that day,
+  // in chronological (view.shifts) order — same day-columns shape as the in-app editor.
+  const columns = DAYS.map((day) => {
+    const blocks = view.shifts
+      .map((shift) => {
         const people = view.cells[cellKey(day, shift.id)] ?? [];
+        if (people.length === 0) return "";
         const chips = people
           .map(
             (p) =>
@@ -101,13 +114,12 @@ export function renderScheduleHtml(view: ScheduleView): string {
               )}</span>`
           )
           .join("");
-        return `<td>${chips}</td>`;
-      }).join("");
-      return `<tr><th class="slot">${escapeHtml(shift.name)}</th>${cells}</tr>`;
-    })
-    .join("");
-
-  const headCells = DAYS.map((day) => `<th>${DAY_LABELS[day]}</th>`).join("");
+        return `<div class="shift"><div class="shift-name">${escapeHtml(shift.name)} <span class="shift-time">${escapeHtml(shift.startTime)}</span></div>${chips}</div>`;
+      })
+      .join("");
+    const body = blocks || `<div class="empty">—</div>`;
+    return `<div class="day"><div class="day-head"><span>${DAY_LABELS[day]}</span><span class="day-date">${dayDate(view.weekStartDate, day)}</span></div><div class="day-body">${body}</div></div>`;
+  }).join("");
 
   // Standalone document — opened directly in a browser tab, not through the SPA.
   return `<!doctype html>
@@ -133,13 +145,20 @@ export function renderScheduleHtml(view: ScheduleView): string {
     border: 1px solid #c7d2fe; background: #eef2ff; color: #4f46e5;
     border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
   }
-  /* On screen the grid scrolls sideways on narrow phones instead of squishing;
+  /* On screen the week scrolls sideways on narrow phones instead of squishing;
      print collapses it back to a single page (see @media print below). */
   .grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 860px; }
-  th, td { border: 1px solid #e5e7eb; padding: 8px; vertical-align: top; text-align: start; }
-  thead th { background: #f9fafb; font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #374151; text-align: center; }
-  th.slot { width: 96px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #374151; background: #f9fafb; }
+  .week { display: flex; gap: 8px; min-width: 860px; align-items: flex-start; }
+  .day { flex: 1 1 0; min-width: 116px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+  .day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; background: #f9fafb; font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #374151; padding: 8px; border-bottom: 1px solid #e5e7eb; }
+  .day-date { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #9ca3af; }
+  /* Light-gray body so the white shift cards read as clearly separate blocks. */
+  .day-body { padding: 8px; background: #f3f4f6; }
+  .shift { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 8px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  .shift:last-child { margin-bottom: 0; }
+  .shift-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 6px; }
+  .shift-time { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #9ca3af; }
+  .empty { text-align: center; color: #d1d5db; padding: 8px 0; }
   .chip { display: block; border-radius: 4px; padding: 4px 8px; font-size: 15px; font-weight: 600; margin-bottom: 5px; overflow-wrap: anywhere; word-break: break-word; }
   .chip:last-child { margin-bottom: 0; }
   .chip.barista { background: #eef2ff; color: #3730a3; }
@@ -151,9 +170,9 @@ export function renderScheduleHtml(view: ScheduleView): string {
   @media print {
     .print-btn { display: none; }
     body { padding: 0; }
-    /* Fit the whole grid on the page regardless of the on-screen min-width. */
+    /* Fit the whole week on the page regardless of the on-screen min-width. */
     .grid-wrap { overflow: visible; }
-    table { min-width: 0; }
+    .week { min-width: 0; }
   }
 </style>
 </head>
@@ -163,14 +182,7 @@ export function renderScheduleHtml(view: ScheduleView): string {
     <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
   </div>
   <div class="grid-wrap">
-    <table>
-      <thead>
-        <tr><th class="slot"></th>${headCells}</tr>
-      </thead>
-      <tbody>
-        ${bodyRows}
-      </tbody>
-    </table>
+    <div class="week">${columns}</div>
   </div>
   <div class="legend">
     <span><span class="swatch barista"></span>Barista</span>

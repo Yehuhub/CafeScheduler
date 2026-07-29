@@ -53,8 +53,8 @@ describe("buildScheduleView", () => {
 
     // both present, morning (06:00) before evening (13:00) regardless of assignment order
     expect(view.shifts).toEqual([
-      { id: MORNING.id, name: "Morning" },
-      { id: EVENING.id, name: "Evening" },
+      { id: MORNING.id, name: "Morning", startTime: MORNING.startTime },
+      { id: EVENING.id, name: "Evening", startTime: EVENING.startTime },
     ]);
   });
 
@@ -65,7 +65,9 @@ describe("buildScheduleView", () => {
       assignments: [assign(1, 0, MORNING, "cook")],
       names,
     });
-    expect(view.shifts).toEqual([{ id: MORNING.id, name: "Morning" }]);
+    expect(view.shifts).toEqual([
+      { id: MORNING.id, name: "Morning", startTime: MORNING.startTime },
+    ]);
   });
 
   it("sorts each cell by role then name", () => {
@@ -114,17 +116,27 @@ describe("renderScheduleHtml", () => {
     expect(html).toContain("Jun 7, 2026");
   });
 
-  it("renders the shift name as a row label", () => {
-    expect(html).toContain(">Morning<");
+  it("renders the shift name as a day-column block header", () => {
+    expect(html).toContain('shift-name">Morning');
   });
 
   it("renders assigned names", () => {
     expect(html).toContain("Alice");
   });
 
-  it("omits shift rows that have no assignments", () => {
-    // Only Morning is used; the Evening row label should not appear in the body
-    expect(html).not.toContain(">Evening<");
+  it("renders the shift start time", () => {
+    expect(html).toContain(MORNING.startTime);
+  });
+
+  it("renders per-day dates (dd/mm) offset from the week's Sunday", () => {
+    // Week of 2026-06-07 (Sun): day 0 → 07/06, day 6 (Sat) → 13/06
+    expect(html).toContain("07/06");
+    expect(html).toContain("13/06");
+  });
+
+  it("omits shifts that have no assignments", () => {
+    // Only Morning is used; the Evening block should not appear anywhere
+    expect(html).not.toContain('shift-name">Evening');
   });
 
   it("escapes names containing HTML metacharacters", () => {

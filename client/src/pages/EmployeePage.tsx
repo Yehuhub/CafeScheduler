@@ -28,6 +28,15 @@ function formatDate(iso: string): string {
   });
 }
 
+// Short dd/mm for a day-of-week header. `startIso` is the week's Sunday; day 0..6 offsets it.
+function dayDate(startIso: string, day: number): string {
+  const d = new Date(startIso);
+  d.setUTCDate(d.getUTCDate() + day);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
 // ── Availability grid ─────────────────────────────────────────────────────────
 
 function AvailabilityForm({ week }: { week: WeekDto }) {
@@ -339,64 +348,66 @@ function PublishedSchedule({ week, userId }: { week: WeekDto; userId: number }) 
           <p className="text-sm text-gray-500">{t("employee.emptySchedule")}</p>
         ) : (
           <>
+            {/* Day columns — same shape as the editor; scrolls sideways on a phone. */}
             <div className="overflow-x-auto">
-              <table className="border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th className="sticky left-0 z-10 bg-white pb-2 pe-3" />
-                    {DAYS.map((day) => (
-                      <th
-                        key={day}
-                        className="border-b border-gray-200 pb-2 text-center text-xs font-medium text-gray-500"
-                        style={{ minWidth: "6.5rem" }}
-                      >
-                        {t(`days.${day}`)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {shifts.filter((shift) => all.some((a) => a.shiftId === shift.id)).map((shift) => (
-                    <tr key={shift.id} className="border-t border-gray-200 align-top">
-                      <td className="sticky left-0 z-10 whitespace-nowrap border-e border-gray-100 bg-white py-3 pe-3">
-                        <span className="block text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          {shift.name}
+              <div className="flex gap-2">
+                {DAYS.map((day) => {
+                  const dayShifts = shifts.filter((shift) =>
+                    all.some((a) => a.day === day && a.shiftId === shift.id)
+                  );
+                  return (
+                    <div key={day} className="flex min-w-[8rem] flex-1 flex-col overflow-hidden rounded-lg border border-gray-200">
+                      <div className="flex items-baseline justify-between gap-1 border-b border-gray-200 px-2 py-1.5">
+                        <span className="text-sm font-semibold">{t(`days.${day}`)}</span>
+                        <span className="text-xs font-normal text-gray-400">
+                          {dayDate(week.startDate, day)}
                         </span>
-                        <span className="block text-xs font-normal normal-case text-gray-400">
-                          {shiftTime(shift.id)}
-                        </span>
-                      </td>
-                      {DAYS.map((day) => {
-                        const people = all
-                          .filter((a) => a.day === day && a.shiftId === shift.id)
-                          .sort(
-                            (a, b) =>
-                              a.roleWorking.localeCompare(b.roleWorking) ||
-                              (names.get(a.userId) ?? "").localeCompare(names.get(b.userId) ?? "")
-                          );
-                        return (
-                          <td key={day} className="border-s border-gray-100 p-1.5">
-                            <div className="flex flex-col gap-1.5">
-                              {people.map((s) => (
-                                <span
-                                  key={s.id}
-                                  className={`truncate rounded px-2 py-1 text-xs ${
-                                    s.roleWorking === "cook"
-                                      ? "bg-teal-50 text-teal-700"
-                                      : "bg-indigo-50 text-indigo-700"
-                                  } ${s.userId === userId ? "font-bold ring-1 ring-gray-400" : ""}`}
-                                >
-                                  {names.get(s.userId) ?? `#${s.userId}`}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      {/* flex-1 so the gray body fills the full (equal-height) column, not just
+                          down to the last shift. */}
+                      <div className="flex-1 space-y-2.5 bg-gray-100 px-2 py-2">
+                        {dayShifts.length === 0 ? (
+                          <p className="py-2 text-center text-xs text-gray-400">—</p>
+                        ) : (
+                          dayShifts.map((shift) => {
+                            const people = all
+                              .filter((a) => a.day === day && a.shiftId === shift.id)
+                              .sort(
+                                (a, b) =>
+                                  a.roleWorking.localeCompare(b.roleWorking) ||
+                                  (names.get(a.userId) ?? "").localeCompare(names.get(b.userId) ?? "")
+                              );
+                            return (
+                              <div key={shift.id} className="rounded-md border border-gray-300 bg-white p-2 shadow-sm">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                  {shift.name}
+                                  <span className="mt-0.5 block font-normal normal-case text-gray-400">
+                                    {shiftTime(shift.id)}
+                                  </span>
+                                </p>
+                                <div className="mt-1.5 flex flex-col gap-1">
+                                  {people.map((s) => (
+                                    <span
+                                      key={s.id}
+                                      className={`truncate rounded px-2 py-1 text-xs ${
+                                        s.roleWorking === "cook"
+                                          ? "bg-teal-50 text-teal-700"
+                                          : "bg-indigo-50 text-indigo-700"
+                                      } ${s.userId === userId ? "font-bold ring-1 ring-gray-400" : ""}`}
+                                    >
+                                      {names.get(s.userId) ?? `#${s.userId}`}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="mt-3 flex gap-4 text-xs text-gray-500">
