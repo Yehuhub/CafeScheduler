@@ -50,8 +50,12 @@ export interface ShiftDto {
 
 // GET /weeks/:weekId/shifts augments each shift with the days it actually runs
 // (has a non-zero requirement) so the availability grid can offer only real cells.
+// `cookDays`/`baristaDays` split that by role so the grid offers a cell to an
+// employee only where their role is actually needed (never leaks the headcounts).
 export interface ShiftWithDaysDto extends ShiftDto {
-  days: number[]; // 0–6, sorted ascending
+  days: number[]; // 0–6, sorted ascending — runs that day for any role
+  cookDays: number[]; // subset of `days` needing ≥1 cook
+  baristaDays: number[]; // subset of `days` needing ≥1 barista
 }
 
 export interface AvailabilityDto {

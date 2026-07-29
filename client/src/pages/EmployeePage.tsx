@@ -39,7 +39,15 @@ function dayDate(startIso: string, day: number): string {
 
 // ── Availability grid ─────────────────────────────────────────────────────────
 
-function AvailabilityForm({ week }: { week: WeekDto }) {
+function AvailabilityForm({
+  week,
+  isCook,
+  isBarista,
+}: {
+  week: WeekDto;
+  isCook: boolean;
+  isBarista: boolean;
+}) {
   const { t } = useTranslation();
 
   // persisted: what the server has saved; draft: working copy while editing
@@ -67,6 +75,12 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
 
   const hasFilled = persisted.size > 0;
   const canEdit = week.status === "availability_open";
+
+  // Offer a cell only where the employee's own role is actually needed — a barista
+  // shouldn't be able to tick a cook-only slot they can never be assigned to.
+  const canFill = (shift: ShiftWithDaysDto, day: number) =>
+    (isCook && shift.cookDays.includes(day)) ||
+    (isBarista && shift.baristaDays.includes(day));
 
   const handleEdit = () => {
     setDraft(new Set(persisted));
@@ -100,7 +114,7 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
     // so anything omitted is cleared.
     const entries = DAYS.flatMap((day) =>
       shifts
-        .filter((shift) => shift.days.includes(day))
+        .filter((shift) => canFill(shift, day))
         .map((shift) => ({
           day,
           shiftId: shift.id,
@@ -180,7 +194,7 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
               </thead>
               <tbody>
                 {shifts
-                  .filter((shift) => shift.days.length > 0)
+                  .filter((shift) => DAYS.some((day) => canFill(shift, day)))
                   .map((shift) => (
                     <tr key={shift.id} className="border-t border-gray-100">
                       <td className="py-2 pe-3 whitespace-nowrap">
@@ -188,11 +202,11 @@ function AvailabilityForm({ week }: { week: WeekDto }) {
                         <span className="ms-1 text-xs text-gray-400">{shift.startTime}</span>
                       </td>
                       {DAYS.map((day) => {
-                        const runs = shift.days.includes(day);
+                        const offer = canFill(shift, day);
                         const key = cellKey(day, shift.id);
                         return (
                           <td key={day} className="py-2 text-center">
-                            {runs ? (
+                            {offer ? (
                               <input
                                 type="checkbox"
                                 checked={draft.has(key)}
@@ -566,7 +580,13 @@ export default function EmployeePage() {
               </div>
             )}
 
-            {openWeek && <AvailabilityForm week={openWeek} />}
+            {openWeek && (
+              <AvailabilityForm
+                week={openWeek}
+                isCook={user.isCook}
+                isBarista={user.isBarista}
+              />
+            )}
 
             {/* Profile card */}
             <div className="rounded-lg border bg-white p-4 shadow-sm">

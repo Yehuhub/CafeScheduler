@@ -51,18 +51,27 @@ router.get("/weeks/:weekId/shifts", requireLogin, async (req, res, next) => {
     ]);
 
     const daysByShift = new Map<number, Set<number>>();
+    const cookDaysByShift = new Map<number, Set<number>>();
+    const baristaDaysByShift = new Map<number, Set<number>>();
+    const addDay = (map: Map<number, Set<number>>, shiftId: number, day: number) => {
+      let set = map.get(shiftId);
+      if (!set) map.set(shiftId, (set = new Set()));
+      set.add(day);
+    };
     for (const r of reqs) {
-      if (r.cooksNeeded > 0 || r.baristasNeeded > 0) {
-        let set = daysByShift.get(r.shiftId);
-        if (!set) daysByShift.set(r.shiftId, (set = new Set()));
-        set.add(r.day);
-      }
+      if (r.cooksNeeded > 0 || r.baristasNeeded > 0) addDay(daysByShift, r.shiftId, r.day);
+      if (r.cooksNeeded > 0) addDay(cookDaysByShift, r.shiftId, r.day);
+      if (r.baristasNeeded > 0) addDay(baristaDaysByShift, r.shiftId, r.day);
     }
+    const sortedDays = (map: Map<number, Set<number>>, shiftId: number) =>
+      [...(map.get(shiftId) ?? [])].sort((a, b) => a - b);
 
     res.json({
       shifts: rows.map((s) => ({
         ...toShiftDto(s),
-        days: [...(daysByShift.get(s.id) ?? [])].sort((a, b) => a - b),
+        days: sortedDays(daysByShift, s.id),
+        cookDays: sortedDays(cookDaysByShift, s.id),
+        baristaDays: sortedDays(baristaDaysByShift, s.id),
       })),
     });
   } catch (err) {
