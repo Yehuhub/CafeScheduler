@@ -139,6 +139,10 @@
     "daySummary": "{{assigned}}/{{needed}} filled",
     "noCandidates": "No eligible staff",
     "bosses": "Bosses · can fill any role",
+    "availabilityPanelTitle": "Availability",
+    "noAvailability": "No availability submitted",
+    "collapseAll": "Collapse all",
+    "expandAll": "Expand all",
     "loadError": "Failed to load schedule",
     "addError": "Failed to add",
     "empty": "No slots configured for this week."
